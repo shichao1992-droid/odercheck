@@ -148,6 +148,18 @@ input,select,button{font-family:var(--font);}
 .ol-qty input{width:100%;padding:5px 6px;font-size:13px;border-radius:var(--rs);border:1px solid var(--bd2);background:var(--s);color:var(--t);text-align:center;}
 .ol-rm{background:none;border:none;color:var(--err);cursor:pointer;font-size:18px;line-height:1;padding:0;}
 .empty-ol{text-align:center;padding:20px;color:var(--t3);font-size:13px;}
+.prod-img-wrap{display:flex;gap:12px;align-items:flex-start;margin-top:8px;}
+.prod-img{width:90px;height:90px;border-radius:var(--rs);object-fit:cover;border:1px solid var(--bd);background:var(--s2);cursor:pointer;}
+.prod-img-ph{width:90px;height:90px;border-radius:var(--rs);border:2px dashed var(--bd2);display:flex;align-items:center;justify-content:center;color:var(--t3);font-size:11px;cursor:pointer;text-align:center;padding:4px;}
+.oc-img{width:48px;height:48px;border-radius:var(--rs);object-fit:cover;border:1px solid var(--bd);flex-shrink:0;}
+.oc-overdue{font-size:10px;font-weight:600;color:var(--err);padding:2px 8px;background:var(--err-bg);border:1px solid var(--err-bd);border-radius:4px;margin-bottom:2px;display:inline-block;}
+.oc-soon{font-size:10px;font-weight:600;color:var(--warn);padding:2px 8px;background:var(--warn-bg);border:1px solid var(--warn-bd);border-radius:4px;margin-bottom:2px;display:inline-block;}
+.oc-edit-btn{background:none;border:none;border-left:1px solid var(--bd);color:var(--t3);cursor:pointer;font-size:14px;padding:0 10px;transition:all .15s;flex-shrink:0;}
+.oc-edit-btn:hover{background:var(--info-bg);color:var(--info);}
+.edit-banner{background:var(--info-bg);border:1px solid var(--info-bd);color:var(--info);padding:8px 14px;border-radius:var(--rs);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:500;}
+.sort-btns{display:flex;gap:4px;}
+.sort-btn{padding:3px 8px;border-radius:12px;border:1px solid var(--bd);background:transparent;color:var(--t2);font-size:10px;cursor:pointer;transition:all .15s;}
+.sort-btn.active{background:var(--t);color:var(--s);border-color:var(--t);}
 .cmd-foot{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px;}
 
 /* NUANCIER */
@@ -234,7 +246,13 @@ input,select,button{font-family:var(--font);}
     <div class="kpis" id="kpis"></div>
     <div class="hist-top">
       <div class="hfs" id="hfs"></div>
-      <button class="btn btn-info" onclick="exportAllXlsx()">📥 Excel</button>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <div class="sort-btns">
+          <button class="sort-btn active" id="sb-date" onclick="setSort('date')">📅 Date</button>
+          <button class="sort-btn" id="sb-dlv" onclick="setSort('dlv')">📦 Livraison</button>
+        </div>
+        <button class="btn btn-info" onclick="exportAllXlsx()">📥 Excel</button>
+      </div>
     </div>
     <div class="ocards" id="ocards"></div>
   </div>
@@ -246,14 +264,30 @@ input,select,button{font-family:var(--font);}
     <!-- Client -->
     <div class="client-tabs" id="ctabs"></div>
 
+    <!-- Edit banner -->
+    <div class="edit-banner" id="edit-banner" style="display:none">
+      <span>✏️ Mode modification — <span id="edit-ref"></span></span>
+      <button class="btn" onclick="cancelEdit()" style="padding:3px 10px;font-size:11px;">✕ Annuler</button>
+    </div>
+
     <!-- Produit + date -->
     <div class="card">
       <div class="card-title">Produit / 商品</div>
-      <div class="row">
-        <div class="fld" style="max-width:170px;"><label>Référence 编号</label><input id="c-ref" placeholder="25730…" oninput="onRef()" autocomplete="off"/></div>
-        <div class="fld"><label>Description 描述</label><input id="c-desc" placeholder="Short TU44-50…"/></div>
-        <div class="fld" style="max-width:160px;"><label>Livraison 收货日期</label><input type="date" id="c-dlv"/></div>
-        <div class="fld" style="max-width:170px;"><label>Fournisseur 供应商</label><select id="c-sup"><option value="">— Sélectionner —</option></select></div>
+      <div class="prod-img-wrap">
+        <div style="flex:1;">
+          <div class="row">
+            <div class="fld" style="max-width:170px;"><label>Référence 编号</label><input id="c-ref" placeholder="25730…" oninput="onRef()" autocomplete="off"/></div>
+            <div class="fld"><label>Description 描述</label><input id="c-desc" placeholder="Short TU44-50…"/></div>
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <div class="fld" style="max-width:160px;"><label>Livraison 收货日期</label><input type="date" id="c-dlv"/></div>
+            <div class="fld" style="max-width:170px;"><label>Fournisseur 供应商</label><select id="c-sup"><option value="">— Sélectionner —</option></select></div>
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <div class="fld"><label>📷 URL photo produit</label><input id="c-img" placeholder="https://…" oninput="onImgUrl()"/></div>
+          </div>
+        </div>
+        <div id="c-img-preview" onclick="document.getElementById('c-img').focus()"></div>
       </div>
       <div class="dupli" id="dupli"></div>
     </div>
@@ -511,7 +545,7 @@ async function cloudPush(){
   showSyncStatus("syncing");
   try{
     const ts = new Date().toISOString();
-    const payload = {COLORS,ORDERS,CLIENTS,MEM,_v:"v8",_d:ts,
+    const payload = {COLORS,ORDERS,CLIENTS,MEM,PROD_IMAGES,_v:"v9",_d:ts,
       _stats:{orders:ORDERS.length,colors:COLORS.length,clients:CLIENTS.length}};
     const res = await fetch("https://api.jsonbin.io/v3/b/"+cfg.binId,{
       method:"PUT",
@@ -583,6 +617,7 @@ function applyCloudData(d){
   if(d.ORDERS)ORDERS=d.ORDERS;
   if(d.CLIENTS)CLIENTS=d.CLIENTS;
   if(d.MEM)MEM=d.MEM;
+  if(d.PROD_IMAGES){Object.assign(PROD_IMAGES,d.PROD_IMAGES);saveImages();}
   const ts = d._d||new Date().toISOString();
   localStorage.setItem("cm-local-ts", ts);
   localStorage.setItem("cm-last-sync", ts);
@@ -623,6 +658,10 @@ let COLORS=[],ORDERS=[],CLIENTS=[],MEM={};
 let OL=[]; // order lines draft
 let activeClient="";
 let histFilter="all";
+let sortMode="date"; // "date" or "dlv"
+let editingOrderId=null; // if editing an existing order
+const PROD_IMAGES=JSON.parse(localStorage.getItem("cm-prod-img")||"{}"); // {ref: url}
+function saveImages(){localStorage.setItem("cm-prod-img",JSON.stringify(PROD_IMAGES));}
 let histSupFilter="";
 let editingColor=null, editingCL=null;
 let freeSrchVal="";
@@ -646,7 +685,7 @@ function save(){
 
 /* ═══ EXPORT / IMPORT ═══ */
 function exportJSON(){
-  const blob=new Blob([JSON.stringify({COLORS,ORDERS,CLIENTS,MEM,_v:"v8",_d:new Date().toISOString()},null,2)],{type:"application/json"});
+  const blob=new Blob([JSON.stringify({COLORS,ORDERS,CLIENTS,MEM,PROD_IMAGES,_v:"v9",_d:new Date().toISOString()},null,2)],{type:"application/json"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="cmelodie-data.json";a.click();
   showToast("📤 Exporté — partagez le fichier vers vos autres appareils");
 }
@@ -663,6 +702,7 @@ function importJSON(e){
       if(d.ORDERS)ORDERS=d.ORDERS;
       if(d.CLIENTS){CLIENTS=d.CLIENTS;if(!activeClient&&CLIENTS.length)activeClient=CLIENTS[0].id;}
       if(d.MEM)MEM=d.MEM;
+      if(d.PROD_IMAGES){Object.assign(PROD_IMAGES,d.PROD_IMAGES);saveImages();}
       save();refreshAll();
       showToast("✅ "+nb+" commandes importées");
     }catch(err){showToast("⚠ Erreur lecture fichier");}
@@ -706,7 +746,32 @@ function go(t,el){
 function filtOrd(){
   let list=histFilter==="all"?ORDERS:ORDERS.filter(o=>o.clientId===histFilter);
   if(histSupFilter)list=list.filter(o=>o.supplier===histSupFilter);
+  if(sortMode==="dlv"){
+    list=[...list].sort((a,b)=>{
+      const ad=a.deliveryDate||"9999",bd=b.deliveryDate||"9999";
+      if(ad!==bd)return ad.localeCompare(bd);
+      return new Date(b.date)-new Date(a.date);
+    });
+  }
   return list;
+}
+function isOverdue(o){
+  if(o.received||!o.deliveryDate)return false;
+  const today=new Date();today.setHours(0,0,0,0);
+  return new Date(o.deliveryDate+"T23:59:59")<today;
+}
+function isSoon(o){
+  if(o.received||!o.deliveryDate)return false;
+  const today=new Date();today.setHours(0,0,0,0);
+  const dlv=new Date(o.deliveryDate+"T23:59:59");
+  const diff=(dlv-today)/(1000*60*60*24);
+  return diff>=0&&diff<=3;
+}
+function setSort(mode){
+  sortMode=mode;
+  document.getElementById("sb-date").className="sort-btn"+(mode==="date"?" active":"");
+  document.getElementById("sb-dlv").className="sort-btn"+(mode==="dlv"?" active":"");
+  renderHome();
 }
 function renderHome(){
   const list=filtOrd();
@@ -734,25 +799,32 @@ function renderHome(){
   if(!list.length){el.innerHTML=`<div class="no-data">Aucune commande — 暂无订单</div>`;return;}
   el.innerHTML=list.map(o=>{
     const t=o.lines.reduce((s,l)=>s+l.qty,0);
-    const isR=!!o.received,hasDlv=!!o.deliveryDate,fut=hasDlv&&isFuture(o.deliveryDate)&&!isR;
-    const strp=isR?"r":hasDlv?"p":"";
+    const isR=!!o.received,hasDlv=!!o.deliveryDate;
+    const over=isOverdue(o),soon=isSoon(o);
+    const strp=isR?"r":over?"overdue":hasDlv?"p":"";
     const sb=isR?`<span class="badge b-r">✓ ${o.receivedDate?fmtDay(o.receivedDate):""}</span>`:hasDlv?`<span class="badge b-p">📦 ${fmtDay(o.deliveryDate)}</span>`:"";
+    const imgUrl=o.imageUrl||PROD_IMAGES[o.ref]||"";
+    const alertHtml=over?`<span class="oc-overdue">🔴 EN RETARD — prévu ${fmtDay(o.deliveryDate)}</span> `:soon?`<span class="oc-soon">🟡 Bientôt — prévu ${fmtDay(o.deliveryDate)}</span> `:"";
     return `<div class="oc">
       <div style="display:flex;align-items:stretch;">
       <div class="oc-hdr" style="flex:1;" onclick="document.getElementById('ob-${o.id}').classList.toggle('open')">
-        <div class="stripe ${strp}"></div>
-        <div class="oc-main">
-          <div class="oc-top">
-            <div><div class="oc-ref">${o.ref}</div><div class="oc-desc">${o.desc||""}</div></div>
-            <div class="badges"><span class="badge b-cl">${o.clientName||o.clientId}</span>${o.supplier?`<span class="badge" style="background:var(--info-bg);color:var(--info);border:1px solid var(--info-bd)">${o.supplier}</span>`:""}<span class="badge b-n">${t} pcs</span>${sb}</div>
-          </div>
-          <div class="oc-meta">
-            <span>${fmtDate(o.date)}</span>${o.lines.slice(0,5).map(l=>`<span><span class="dot-sw" style="background:${l.hex}"></span>${l.colorNameFr}</span>`).join("")}
-            ${o.lines.length>5?`<span>+${o.lines.length-5}</span>`:""}
+        <div class="stripe ${strp}" ${over?'style="background:var(--err-bd)"':""} ></div>
+        <div class="oc-main" style="display:flex;gap:10px;align-items:center;">
+          ${imgUrl?`<img class="oc-img" src="${imgUrl}" onerror="this.style.display='none'"/>`:""} 
+          <div style="flex:1;min-width:0;">
+            <div class="oc-top">
+              <div>${alertHtml}<div class="oc-ref">${o.ref}</div><div class="oc-desc">${o.desc||""}</div></div>
+              <div class="badges"><span class="badge b-cl">${o.clientName||o.clientId}</span>${o.supplier?`<span class="badge" style="background:var(--info-bg);color:var(--info);border:1px solid var(--info-bd)">${o.supplier}</span>`:""}<span class="badge b-n">${t} pcs</span>${sb}</div>
+            </div>
+            <div class="oc-meta">
+              <span>${fmtDate(o.date)}</span>${o.lines.slice(0,5).map(l=>`<span><span class="dot-sw" style="background:${l.hex}"></span>${l.colorNameFr}</span>`).join("")}
+              ${o.lines.length>5?`<span>+${o.lines.length-5}</span>`:""}
+            </div>
           </div>
         </div>
       </div>
-      <button class="oc-del-btn" data-id="${o.id}" title="Supprimer cette commande">🗑</button>
+      <button class="oc-edit-btn" data-edit="${o.id}" title="Modifier">✏️</button>
+      <button class="oc-del-btn" data-id="${o.id}" title="Supprimer">🗑</button>
       </div>
       <div class="oc-body" id="ob-${o.id}">
         <div class="dgrid">
@@ -777,6 +849,52 @@ function markRec(id){const o=ORDERS.find(x=>x.id===id);if(!o)return;o.received=t
 function unmarkRec(id){const o=ORDERS.find(x=>x.id===id);if(!o)return;delete o.received;delete o.receivedDate;save();renderHome();showToast("Annulé");}
 function delOrder(id){if(!confirm("Supprimer ?"))return;ORDERS=ORDERS.filter(o=>o.id!==id);save();renderHome();showToast("Supprimé");}
 
+function editOrder(id){
+  const o=ORDERS.find(x=>x.id===id);if(!o)return;
+  editingOrderId=id;
+  // Switch to cmd tab
+  go("cmd",document.querySelectorAll(".tab")[1]);
+  // Fill fields
+  setClient(o.clientId);
+  document.getElementById("c-ref").value=o.ref;
+  document.getElementById("c-desc").value=o.desc||"";
+  document.getElementById("c-dlv").value=o.deliveryDate||"";
+  const supSel=document.getElementById("c-sup");
+  supSel.value=o.supplier||"";
+  // Image
+  const imgUrl=o.imageUrl||PROD_IMAGES[o.ref]||"";
+  document.getElementById("c-img").value=imgUrl;
+  onImgUrl();
+  // Lines
+  OL=JSON.parse(JSON.stringify(o.lines));
+  renderOL();
+  // Show edit banner
+  document.getElementById("edit-banner").style.display="flex";
+  document.getElementById("edit-ref").textContent=o.ref+" — "+cname(o.clientId);
+  // Change validate button
+  document.querySelector(".cmd-foot .btn-ok").innerHTML="✏️ Modifier la commande";
+  onRef();
+}
+
+function cancelEdit(){
+  editingOrderId=null;
+  document.getElementById("edit-banner").style.display="none";
+  document.querySelector(".cmd-foot .btn-ok").innerHTML="✅ Valider";
+  clearCmd();
+}
+
+function onImgUrl(){
+  const url=document.getElementById("c-img").value.trim();
+  const preview=document.getElementById("c-img-preview");
+  if(url){
+    preview.innerHTML='<img class="prod-img" src="'+url+'" onerror="this.style.display=\'none\'">';
+  } else {
+    preview.innerHTML='<div class="prod-img-ph">📷 Coller<br>une URL</div>';
+  }
+  const ref=document.getElementById("c-ref").value.trim();
+  if(ref&&url){PROD_IMAGES[ref]=url;saveImages();}
+}
+
 /* ═══ COMMANDE ═══ */
 function renderCtabs(){
   document.getElementById("ctabs").innerHTML=
@@ -791,6 +909,12 @@ function addMem(cid,ref,colorId){const k=cid+":"+ref;if(!MEM[k])MEM[k]={};MEM[k]
 function onRef(){
   const ref=document.getElementById("c-ref").value.trim();
   if(PROD_NAMES[ref])document.getElementById("c-desc").value=PROD_NAMES[ref];
+  // Load saved image for this REF
+  if(!editingOrderId){
+    const savedImg=PROD_IMAGES[ref]||"";
+    document.getElementById("c-img").value=savedImg;
+    onImgUrl();
+  }
   checkDupli();
   updateMemChips();
   updateRefChips();
@@ -898,7 +1022,8 @@ function renderOL(){
 function clearCmd(){
   if(OL.length&&!confirm("Vider ?"))return;
   OL=[];
-  ["c-ref","c-desc","c-dlv","c-sup"].forEach(id=>document.getElementById(id).value="");
+  ["c-ref","c-desc","c-dlv","c-sup","c-img"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("c-img-preview").innerHTML='<div class="prod-img-ph">📷 Coller<br>une URL</div>';
   document.getElementById("dupli").style.display="none";
   document.getElementById("ref-chips").style.display="none";
   document.getElementById("mem-box").style.display="none";
@@ -912,21 +1037,45 @@ function validateCmd(){
   const ref=document.getElementById("c-ref").value.trim();
   const desc=document.getElementById("c-desc").value.trim();
   const dlv=document.getElementById("c-dlv").value;
+  const imgUrl=document.getElementById("c-img").value.trim();
   const lines=OL.filter(l=>l.qty>0);
   if(!ref){showToast("⚠ Référence manquante");return;}
   if(!lines.length){showToast("⚠ Aucune quantité");return;}
   if(!activeClient){showToast("⚠ Sélectionnez un client");return;}
   lines.forEach(l=>addMem(activeClient,ref,l.colorId));
   const sup=document.getElementById("c-sup").value||"";
-  const order={id:uid(),date:new Date().toISOString(),ref,desc:desc||ref,
-    clientId:activeClient,clientName:cname(activeClient),
-    supplier:sup,
-    deliveryDate:dlv||null,received:false,lines:JSON.parse(JSON.stringify(lines))};
-  ORDERS.unshift(order);
-  save();
-  showToast("✅ Commande enregistrée");
-  exportXlsx(order);
-  clearCmd();
+  // Save image URL per REF
+  if(ref&&imgUrl){PROD_IMAGES[ref]=imgUrl;saveImages();}
+
+  if(editingOrderId){
+    // ── MODE EDIT ──
+    const o=ORDERS.find(x=>x.id===editingOrderId);
+    if(o){
+      o.ref=ref; o.desc=desc||ref;
+      o.clientId=activeClient; o.clientName=cname(activeClient);
+      o.supplier=sup; o.deliveryDate=dlv||null;
+      o.imageUrl=imgUrl||undefined;
+      o.lines=JSON.parse(JSON.stringify(lines));
+    }
+    save();
+    showToast("✏️ Commande modifiée");
+    editingOrderId=null;
+    document.getElementById("edit-banner").style.display="none";
+    document.querySelector(".cmd-foot .btn-ok").innerHTML="✅ Valider";
+    clearCmd();
+    go("home",document.querySelectorAll(".tab")[0]);
+  } else {
+    // ── MODE CRÉATION ──
+    const order={id:uid(),date:new Date().toISOString(),ref,desc:desc||ref,
+      clientId:activeClient,clientName:cname(activeClient),
+      supplier:sup, imageUrl:imgUrl||undefined,
+      deliveryDate:dlv||null,received:false,lines:JSON.parse(JSON.stringify(lines))};
+    ORDERS.unshift(order);
+    save();
+    showToast("✅ Commande enregistrée");
+    exportXlsx(order);
+    clearCmd();
+  }
 }
 
 /* ═══ NUANCIER ═══ */
@@ -1139,10 +1288,12 @@ renderN();
 go("home",document.querySelector(".tab"));
 initSupSelect();
 showSyncStatus("idle");
-// Persistent event delegation for quick-delete on order cards
+// Persistent event delegation for quick-delete and edit on order cards
 document.addEventListener("click", function(e){
-  const btn = e.target.closest(".oc-del-btn");
-  if(btn){ e.stopPropagation(); delOrder(btn.dataset.id); }
+  const del = e.target.closest(".oc-del-btn");
+  if(del){ e.stopPropagation(); delOrder(del.dataset.id); return; }
+  const edit = e.target.closest(".oc-edit-btn");
+  if(edit){ e.stopPropagation(); editOrder(edit.dataset.edit); return; }
 });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
