@@ -209,6 +209,8 @@ input,select,button{font-family:var(--font);}
 .toast.show{opacity:1;transform:translateY(0);}
 
 @media(max-width:540px){
+  .prod-img-wrap{flex-direction:column-reverse;}
+  .prod-img,.prod-img-ph{width:100%;height:120px;}
   .nav-top,.n-toolbar,.grp-bar,.ncontent,.page{padding-left:12px;padding-right:12px;}
   .ncards{grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:5px;}
   .ol{grid-template-columns:28px 1fr 68px 22px;}
@@ -287,7 +289,7 @@ input,select,button{font-family:var(--font);}
             <div class="fld"><label>📷 URL photo produit</label><input id="c-img" placeholder="https://…" oninput="onImgUrl()"/></div>
           </div>
         </div>
-        <div id="c-img-preview" onclick="document.getElementById('c-img').focus()"></div>
+        <div id="c-img-preview" onclick="document.getElementById('c-img').focus()"><div class="prod-img-ph">📷 Coller<br>une URL</div></div>
       </div>
       <div class="dupli" id="dupli"></div>
     </div>
@@ -549,7 +551,7 @@ async function cloudPush(){
       _stats:{orders:ORDERS.length,colors:COLORS.length,clients:CLIENTS.length}};
     const res = await fetch("https://api.jsonbin.io/v3/b/"+cfg.binId,{
       method:"PUT",
-      headers:{"Content-Type":"application/json","X-Master-Key":cfg.apiKey,"X-Bin-Versioning":"false"},
+      headers:{"Content-Type":"application/json","X-Master-Key":cfg.apiKey},
       body: JSON.stringify(payload)
     });
     if(res.ok){
@@ -559,6 +561,7 @@ async function cloudPush(){
     } else {
       const err = await res.text();
       showSyncStatus("err","Erreur "+res.status);
+      showToast("⚠ Cloud erreur "+res.status+": "+err.slice(0,100));
       console.error("cloudPush error:", res.status, err);
     }
   }catch(e){ showSyncStatus("err","Hors ligne"); console.error(e); }
