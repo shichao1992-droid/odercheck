@@ -521,11 +521,29 @@ const PROD_COLOR_NAMES = {
 
 const SK = {C:"cm-c-v8",O:"cm-o-v8",CL:"cm-cl-v8",M:"cm-m-v8",JB:"cm-jb-cfg"};
 /* ═══ JSONBIN CONFIG ═══ */
-function jbCfg(){
-  return {
-    binId: "6a26bb96da38895dfe99d852",
-    apiKey: "$2a$10$v2aLTG.8ynIQWFq8qUc6uezqZhEuJTPAxZzDaN7LcihD9MB5xmskq"
-  };
+const JB_KEY = "$2a$10$v2aLTG.8ynIQWFq8qUc6uezqZhEuJTPAxZzDaN7LcihD9MB5xmskq";
+const JB_BINS = {
+  orders:  "6a26bb96da38895dfe99d852",
+  colors:  "6a2bc7a7f5f4af5e29e51f08",
+  clients: "6a2bc83ff5f4af5e29e52205",
+  images:  "6a2bc850da38895dfeb39ba4",
+  backup:  "6a2bc866da38895dfeb39bfb"
+};
+async function jbPut(binId, data){
+  const res = await fetch("https://api.jsonbin.io/v3/b/"+binId,{
+    method:"PUT",
+    headers:{"Content-Type":"application/json","X-Master-Key":JB_KEY},
+    body:JSON.stringify(data)
+  });
+  return res;
+}
+async function jbGet(binId){
+  const res = await fetch("https://api.jsonbin.io/v3/b/"+binId+"/latest",{
+    headers:{"X-Master-Key":JB_KEY}
+  });
+  if(!res.ok) return null;
+  const json = await res.json();
+  return json.record;
 }
 
 let jbSyncing = false;
@@ -538,80 +556,101 @@ function setLocalTs(){
   return ts;
 }
 
-/* ── PUSH : envoyer vers le cloud ── */
+/* ── PUSH : envoyer vers le cloud (5 bins) ── */
 async function cloudPush(){
-  const cfg = jbCfg();
-  if(!cfg.binId||!cfg.apiKey){ showToast("⚠ Cloud non configuré"); return; }
   if(jbSyncing) return;
   jbSyncing = true;
   showSyncStatus("syncing");
+  const ts = new Date().toISOString();
+  let ok=0, fail=0;
   try{
-    const ts = new Date().toISOString();
-    const payload = {COLORS,ORDERS,CLIENTS,MEM,PROD_IMAGES,_v:"v9",_d:ts,
-      _stats:{orders:ORDERS.length,colors:COLORS.length,clients:CLIENTS.length}};
-    const res = await fetch("https://api.jsonbin.io/v3/b/"+cfg.binId,{
-      method:"PUT",
-      headers:{"Content-Type":"application/json","X-Master-Key":cfg.apiKey},
-      body: JSON.stringify(payload)
+    // Strip base64 images (too heavy for cloud)
+    const cleanOrders = ORDERS.map(o=>{
+      if(o.imageUrl && o.imageUrl.startsWith("data:")) return {...o, imageUrl:undefined};
+      return o;
     });
-    if(res.ok){
-      localStorage.setItem("cm-last-sync", ts);
+    const cleanImages = {};
+    for(const [ref,url] of Object.entries(PROD_IMAGES)){
+      if(!url.startsWith("data:")) cleanImages[ref]=url;
+    }
+    const b64count = Object.keys(PROD_IMAGES).length - Object.keys(cleanImages).length;
+    if(b64count) console.warn(b64count+" image(s) base64 ignorée(s) — utiliser des URLs");
+    const tasks = [
+      {name:"orders",  bin:JB_BINS.orders,  data:{ORDERS:cleanOrders,_d:ts}},
+      {name:"colors",  bin:JB_BINS.colors,  data:{COLORS,_d:ts}},
+      {name:"clients", bin:JB_BINS.clients, data:{CLIENTS,MEM,_d:ts}},
+      {name:"images",  bin:JB_BINS.images,  data:{PROD_IMAGES:cleanImages,_d:ts}},
+    ];
+    const results = await Promise.allSettled(tasks.map(t=>jbPut(t.bin,t.data)));
+    results.forEach((r,i)=>{
+      if(r.status==="fulfilled"&&r.value.ok) ok++;
+      else{ fail++; console.error("Push "+tasks[i].name+" failed:", r); }
+    });
+    if(ok===4){
+      // All 4 OK → backup
       showSyncStatus("ok");
-      showToast("☁️↑ Sauvegardé — "+ORDERS.length+" cmd, "+COLORS.length+" couleurs");
+      localStorage.setItem("cm-last-sync", ts);
+      showToast("☁️↑ Sauvegardé ("+ORDERS.length+" cmd, "+COLORS.length+" couleurs)"+(b64count?" ⚠️ "+b64count+" photo(s) base64 ignorée(s)":""));
+      // Backup silencieux (bin 5)
+      jbPut(JB_BINS.backup,{COLORS,ORDERS:cleanOrders,CLIENTS,MEM,PROD_IMAGES:cleanImages,_v:"v9",_d:ts}).catch(()=>{});
     } else {
-      const err = await res.text();
-      showSyncStatus("err","Erreur "+res.status);
-      showToast("⚠ Cloud erreur "+res.status+": "+err.slice(0,100));
-      console.error("cloudPush error:", res.status, err);
+      showSyncStatus("err","Erreur "+fail+"/4");
+      showToast("⚠ "+ok+"/4 bins OK, "+fail+" échoué(s)");
     }
   }catch(e){ showSyncStatus("err","Hors ligne"); console.error(e); }
   finally{ jbSyncing=false; }
 }
 
-/* ── PULL : charger depuis le cloud ── */
+/* ── PULL : charger depuis le cloud (5 bins) ── */
 async function cloudPull(){
-  const cfg = jbCfg();
-  if(!cfg.binId||!cfg.apiKey){ showToast("⚠ Cloud non configuré"); return; }
   showSyncStatus("syncing");
   try{
-    const res = await fetch("https://api.jsonbin.io/v3/b/"+cfg.binId+"/latest",{
-      headers:{"X-Master-Key":cfg.apiKey}
-    });
-    if(!res.ok){
-      showSyncStatus("err","Erreur "+res.status);
-      console.error("cloudPull error:", res.status);
-      return;
-    }
-    const json = await res.json();
-    const d = json.record;
-    if(!d||(!d.ORDERS&&!d.COLORS)){
-      showToast("⚠ Bin vide ou invalide");
-      showSyncStatus("err","Vide");
-      return;
-    }
+    const [dOrd, dCol, dCli, dImg] = await Promise.all([
+      jbGet(JB_BINS.orders),
+      jbGet(JB_BINS.colors),
+      jbGet(JB_BINS.clients),
+      jbGet(JB_BINS.images),
+    ]);
 
-    const cloudDate = d._d||"";
+    const cloudDate = dOrd?._d || dCol?._d || "";
     const myDate = localTs();
-    const nb = (d.ORDERS||[]).length;
-    const nc = (d.COLORS||[]).length;
+    const nbOrd = (dOrd?.ORDERS||[]).length;
+    const nbCol = (dCol?.COLORS||[]).length;
     const cdFmt = fmtDateTime(cloudDate);
     const myFmt = fmtDateTime(myDate);
 
     let msg = "☁️ Charger depuis le cloud ?\n\n";
-    msg += "Cloud : "+cdFmt+" — "+nb+" cmd, "+nc+" couleurs\n";
+    msg += "Cloud : "+cdFmt+" — "+nbOrd+" cmd, "+nbCol+" couleurs\n";
     msg += "Local : "+myFmt+" — "+ORDERS.length+" cmd, "+COLORS.length+" couleurs\n";
     if(myDate && cloudDate < myDate){
       msg += "\n⚠️ ATTENTION : le cloud est PLUS ANCIEN !\n";
     }
     msg += "\nRemplacer les données locales ?";
     if(!confirm(msg)) return;
-    applyCloudData(d);
-    showToast("☁️ Chargé — "+nb+" cmd, "+nc+" couleurs");
+
+    if(dOrd?.ORDERS) ORDERS=dOrd.ORDERS;
+    if(dCol?.COLORS){COLORS=dCol.COLORS;COLORS.forEach(c=>{if(!c.zh)c.zh="";if(!c.group)c.group="Autres";});}
+    if(dCli?.CLIENTS) CLIENTS=dCli.CLIENTS;
+    if(dCli?.MEM) MEM=dCli.MEM;
+    if(dImg?.PROD_IMAGES){Object.assign(PROD_IMAGES,dImg.PROD_IMAGES);saveImages();}
+
+    const ts = cloudDate||new Date().toISOString();
+    localStorage.setItem("cm-local-ts", ts);
+    localStorage.setItem("cm-last-sync", ts);
+    save();
+    renderAll();
+    showToast("☁️↓ Chargé — "+nbOrd+" cmd, "+nbCol+" couleurs");
     showSyncStatus("ok");
 
   }catch(e){
     showSyncStatus("err","Hors ligne");
     console.error("cloudPull:", e);
+    // Fallback: try backup bin
+    try{
+      showToast("⏳ Essai bin backup…");
+      const bk = await jbGet(JB_BINS.backup);
+      if(bk) { applyCloudData(bk); showToast("☁️ Backup chargé"); showSyncStatus("ok"); }
+    }catch(e2){ console.error("Backup also failed:", e2); }
   }
 }
 
