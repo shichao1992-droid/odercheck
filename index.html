@@ -151,6 +151,14 @@ input,select,button{font-family:var(--font);}
 .prod-img-wrap{display:flex;gap:12px;align-items:flex-start;margin-top:8px;}
 .prod-img{width:90px;height:90px;border-radius:var(--rs);object-fit:cover;border:1px solid var(--bd);background:var(--s2);cursor:pointer;}
 .prod-img-ph{width:90px;height:90px;border-radius:var(--rs);border:2px dashed var(--bd2);display:flex;align-items:center;justify-content:center;color:var(--t3);font-size:11px;cursor:pointer;text-align:center;padding:4px;}
+.cat-thumb{width:44px;height:44px;border-radius:var(--rs);object-fit:cover;border:2px solid transparent;cursor:pointer;transition:border .15s;background:var(--s2);}
+.cat-thumb:hover{border-color:var(--bd2);}
+.cat-thumb.sel{border-color:var(--ok);}
+.cat-thumb-lbl{position:relative;display:inline-block;}
+.cat-thumb-tag{position:absolute;bottom:-2px;left:0;right:0;font-size:8px;text-align:center;background:rgba(0,0,0,.55);color:#fff;line-height:1.4;border-radius:0 0 var(--rs) var(--rs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 2px;}
+.ref-suggest{position:absolute;top:100%;left:0;right:0;z-index:50;background:var(--s);border:1px solid var(--bd2);border-radius:var(--rs);box-shadow:var(--sh);max-height:220px;overflow-y:auto;margin-top:2px;}
+.ref-sugg-item{padding:7px 10px;font-size:12px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ref-sugg-item:hover{background:var(--s2);}
 .oc-img{width:48px;height:48px;border-radius:var(--rs);object-fit:cover;border:1px solid var(--bd);flex-shrink:0;}
 .oc-overdue{font-size:10px;font-weight:600;color:var(--err);padding:2px 8px;background:var(--err-bg);border:1px solid var(--err-bd);border-radius:4px;margin-bottom:2px;display:inline-block;}
 .oc-soon{font-size:10px;font-weight:600;color:var(--warn);padding:2px 8px;background:var(--warn-bg);border:1px solid var(--warn-bd);border-radius:4px;margin-bottom:2px;display:inline-block;}
@@ -281,7 +289,7 @@ input,select,button{font-family:var(--font);}
       <div class="prod-img-wrap">
         <div style="flex:1;">
           <div class="row">
-            <div class="fld" style="max-width:170px;"><label>Référence 编号</label><input id="c-ref" placeholder="25730…" oninput="onRef()" autocomplete="off"/></div>
+            <div class="fld" style="max-width:170px;position:relative;"><label>Référence 编号</label><input id="c-ref" placeholder="25730…" oninput="onRef()" onblur="setTimeout(()=>{const b=document.getElementById('ref-suggest');if(b)b.style.display='none';},150)" autocomplete="off"/><div id="ref-suggest" class="ref-suggest" style="display:none;"></div></div>
             <div class="fld"><label>Description 描述</label><input id="c-desc" placeholder="Short TU44-50…"/></div>
           </div>
           <div class="row" style="margin-top:8px;">
@@ -290,6 +298,10 @@ input,select,button{font-family:var(--font);}
           </div>
           <div class="row" style="margin-top:8px;">
             <div class="fld"><label>📷 URL photo produit</label><input id="c-img" placeholder="https://…" oninput="onImgUrl()"/></div>
+          </div>
+          <div id="cat-photo-picker" style="display:none;margin-top:8px;">
+            <div class="hint" style="margin-bottom:4px;">Photos disponibles au catalogue — cliquez pour choisir 点选使用哪张图</div>
+            <div id="cat-photo-thumbs" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
           </div>
         </div>
         <div id="c-img-preview" onclick="document.getElementById('c-img').focus()"><div class="prod-img-ph">📷 Coller<br>une URL</div></div>
@@ -755,6 +767,20 @@ function saveImages(){localStorage.setItem("cm-prod-img",JSON.stringify(PROD_IMA
 let CATALOG=(function(){try{return JSON.parse(localStorage.getItem("cm-catalog")||"null")||{refs:{},_v:"cat1",_d:""};}catch(e){return {refs:{},_v:"cat1",_d:""};}})();
 function saveCatalogLocal(){localStorage.setItem("cm-catalog",JSON.stringify(CATALOG));}
 
+let CAT_IDX={};
+function rebuildCatIdx(){
+  CAT_IDX={};
+  Object.keys(CATALOG.refs||{}).forEach(r=>{CAT_IDX[nrm(r)]=r;});
+}
+rebuildCatIdx();
+function catGet(refRaw){
+  const ref=(refRaw||"").trim();
+  if(!ref)return null;
+  if(CATALOG.refs[ref])return CATALOG.refs[ref];
+  const real=CAT_IDX[nrm(ref)];
+  return real?CATALOG.refs[real]:null;
+}
+
 function ghCfg(){
   try{return JSON.parse(localStorage.getItem("cm-gh-cfg")||"null")||{owner:"",repo:"",token:"",path:"products.json",branch:"main"};}
   catch(e){return {owner:"",repo:"",token:"",path:"products.json",branch:"main"};}
@@ -837,6 +863,7 @@ async function importCatalogExcel(e){
     const {refs,created}=await parseCatalogWorkbook(file);
     CATALOG={refs,_v:"cat1",_d:new Date().toISOString()};
     saveCatalogLocal();
+    rebuildCatIdx();
     save(); // persist COLORS (nouvelles couleurs éventuelles)
     renderCatalogTab();
     const nbRefs=Object.keys(refs).length;
@@ -909,6 +936,7 @@ async function pullCatalogFromGitHub(silent){
     if(data&&data.refs){
       CATALOG=data;
       saveCatalogLocal();
+      rebuildCatIdx();
       if(!silent){
         if(statusEl)statusEl.textContent=`✅ Catalogue chargé — ${Object.keys(data.refs).length} produits`;
         showToast("☁️↓ Catalogue chargé depuis GitHub");
@@ -1168,20 +1196,63 @@ function addMem(cid,ref,colorId){const k=cid+":"+ref;if(!MEM[k])MEM[k]={};MEM[k]
 
 function onRef(){
   const ref=document.getElementById("c-ref").value.trim();
-  const cat=CATALOG.refs[ref];
+  const cat=catGet(ref);
   if(PROD_NAMES[ref])document.getElementById("c-desc").value=PROD_NAMES[ref];
   else if(cat&&cat.nom)document.getElementById("c-desc").value=cat.nom;
-  // Load saved image for this REF (priorité : image déjà choisie manuellement > catalogue)
+  // Image : on ne choisit plus automatiquement — seule une image déjà choisie manuellement pour ce ref est reprise
   if(!editingOrderId){
-    let savedImg=PROD_IMAGES[ref]||"";
-    if(!savedImg&&cat&&cat.cover)savedImg=cat.cover;
+    const savedImg=PROD_IMAGES[ref]||"";
     document.getElementById("c-img").value=savedImg;
     onImgUrl();
   }
+  renderCatPhotoPicker(ref);
+  renderRefSuggest(ref);
   checkDupli();
   updateMemChips();
   updateRefChips();
   onCSrch();
+}
+
+function renderRefSuggest(refRaw){
+  const box=document.getElementById("ref-suggest");
+  if(!box)return;
+  const val=(refRaw||"").trim();
+  if(!val){box.style.display="none";box.innerHTML="";return;}
+  const n=nrm(val);
+  const exactHit=CATALOG.refs[val]||CAT_IDX[n];
+  const matches=Object.keys(CATALOG.refs||{}).filter(r=>nrm(r).includes(n)).slice(0,8);
+  if(!matches.length||(exactHit&&matches.length===1)){box.style.display="none";box.innerHTML="";return;}
+  box.style.display="block";
+  box.innerHTML=matches.map(r=>{
+    const nom=CATALOG.refs[r].nom?" — "+CATALOG.refs[r].nom:"";
+    return `<div class="ref-sugg-item" data-ref="${r}">${r}${nom}</div>`;
+  }).join("");
+}
+
+function renderCatPhotoPicker(ref){
+  const cat=catGet(ref);
+  const box=document.getElementById("cat-photo-picker");
+  const inner=document.getElementById("cat-photo-thumbs");
+  if(!cat){box.style.display="none";inner.innerHTML="";return;}
+  const currentUrl=document.getElementById("c-img").value.trim();
+  const items=[];
+  if(cat.cover)items.push({url:cat.cover,label:"Cover"});
+  Object.values(cat.colors).forEach(c=>{
+    if(c.urls&&c.urls[0])items.push({url:c.urls[0],label:c.label});
+  });
+  if(!items.length){box.style.display="none";inner.innerHTML="";return;}
+  box.style.display="block";
+  inner.innerHTML=items.map(it=>{
+    const sel=it.url===currentUrl?" sel":"";
+    return `<span class="cat-thumb-lbl"><img class="cat-thumb${sel}" src="${it.url}" data-photourl="${it.url}" title="${it.label}" onerror="this.style.display='none'"/><span class="cat-thumb-tag">${it.label}</span></span>`;
+  }).join("");
+}
+
+function pickCatPhoto(url){
+  document.getElementById("c-img").value=url;
+  onImgUrl();
+  const ref=document.getElementById("c-ref").value.trim();
+  renderCatPhotoPicker(ref);
 }
 
 function checkDupli(){
@@ -1212,7 +1283,7 @@ function updateMemChips(){
 
 function updateRefChips(){
   const ref=document.getElementById("c-ref").value.trim();
-  const cat=CATALOG.refs[ref];
+  const cat=catGet(ref);
   const ids=cat?Object.keys(cat.colors):PROD_COLORS[ref];
   const box=document.getElementById("ref-chips");
   if(!ids||!ref){box.style.display="none";return;}
@@ -1288,6 +1359,7 @@ function clearCmd(){
   OL=[];
   ["c-ref","c-desc","c-dlv","c-sup","c-img"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("c-img-preview").innerHTML='<div class="prod-img-ph">📷 Coller<br>une URL</div>';
+  document.getElementById("cat-photo-picker").style.display="none";
   document.getElementById("dupli").style.display="none";
   document.getElementById("ref-chips").style.display="none";
   document.getElementById("mem-box").style.display="none";
@@ -1563,7 +1635,7 @@ async function exportOrderImage(id){
   showToast("⏳ Génération de l'image…");
   try{
     const W=680,PAD=32,ROWH=54,HEADH=56,FOOTH=64;
-    const rawImg=o.imageUrl||PROD_IMAGES[o.ref]||(CATALOG.refs[o.ref]&&CATALOG.refs[o.ref].cover)||"";
+    const rawImg=o.imageUrl||PROD_IMAGES[o.ref]||(catGet(o.ref)&&catGet(o.ref).cover)||"";
     const img=rawImg?await loadImageSafe(rawImg):null;
     const photoH=img?W:0;
     const infoH=94;
@@ -1652,6 +1724,10 @@ document.addEventListener("click", function(e){
   if(edit){ e.stopPropagation(); editOrder(edit.dataset.edit); return; }
   const imgexp = e.target.closest(".oc-img-btn");
   if(imgexp){ e.stopPropagation(); exportOrderImage(imgexp.dataset.imgexp); return; }
+  const thumb = e.target.closest(".cat-thumb");
+  if(thumb){ e.stopPropagation(); pickCatPhoto(thumb.dataset.photourl); return; }
+  const sugg = e.target.closest(".ref-sugg-item");
+  if(sugg){ e.stopPropagation(); document.getElementById("c-ref").value=sugg.dataset.ref; document.getElementById("ref-suggest").style.display="none"; onRef(); return; }
 });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
