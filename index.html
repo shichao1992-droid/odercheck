@@ -230,6 +230,12 @@ input,select,button{font-family:var(--font);}
 </head>
 <body>
 
+<div id="app-lock" style="position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;">
+  <div style="font-size:16px;font-weight:700;letter-spacing:.04em;">🔒 C'MÉLODIÉ</div>
+  <input type="password" id="lock-pwd" placeholder="Mot de passe" autocomplete="off" inputmode="numeric" style="padding:11px 14px;font-size:16px;border-radius:var(--rs);border:1px solid var(--bd2);background:var(--s2);color:var(--t);text-align:center;width:180px;outline:none;"/>
+  <button class="btn btn-ok btn-lg" onclick="checkAppLock()">Déverrouiller 解锁</button>
+</div>
+
 <div class="nav">
   <div class="nav-top">
     <span class="brand">C'MÉLODIÉ</span>
@@ -463,6 +469,25 @@ input,select,button{font-family:var(--font);}
 <div class="toast" id="toast"></div>
 
 <script>
+/* ═══ VERROU D'ENTRÉE ═══ */
+function checkAppLock(){
+  const v=document.getElementById("lock-pwd").value;
+  if(v==="0000"){
+    sessionStorage.setItem("cm-unlocked","1");
+    document.getElementById("app-lock").style.display="none";
+  } else {
+    document.getElementById("lock-pwd").value="";
+    document.getElementById("lock-pwd").placeholder="⚠ Incorrect";
+    document.getElementById("lock-pwd").focus();
+  }
+}
+if(sessionStorage.getItem("cm-unlocked")==="1"){
+  document.getElementById("app-lock").style.display="none";
+} else {
+  document.getElementById("lock-pwd").addEventListener("keydown",e=>{if(e.key==="Enter")checkAppLock();});
+  setTimeout(()=>document.getElementById("lock-pwd").focus(),100);
+}
+
 /* ═══ DEFAULT COLORS ═══ */
 const DC=[
   // NEUTRES
@@ -615,9 +640,17 @@ function setLocalTs(){
   return ts;
 }
 
+function checkSyncPassword(){
+  const p=prompt("🔒 Mot de passe pour synchroniser / 同步密码：");
+  if(p===null)return false;
+  if(p!=="8888"){showToast("⚠ Mot de passe incorrect");return false;}
+  return true;
+}
+
 /* ── PUSH : envoyer vers le cloud (5 bins) ── */
 async function cloudPush(){
   if(jbSyncing) return;
+  if(!checkSyncPassword())return;
   jbSyncing = true;
   showSyncStatus("syncing");
   const ts = new Date().toISOString();
@@ -697,7 +730,7 @@ async function cloudPull(){
     localStorage.setItem("cm-local-ts", ts);
     localStorage.setItem("cm-last-sync", ts);
     save();
-    renderAll();
+    refreshAll();
     showToast("☁️↓ Chargé — "+nbOrd+" cmd, "+nbCol+" couleurs");
     showSyncStatus("ok");
 
@@ -713,6 +746,29 @@ async function cloudPull(){
   }
 }
 
+async function autoCloudPullSilent(){
+  try{
+    const [dOrd,dCol]=await Promise.all([jbGet(JB_BINS.orders),jbGet(JB_BINS.colors)]);
+    const cloudDate=dOrd?._d||dCol?._d||"";
+    const myDate=localTs();
+    if(!cloudDate)return;
+    if(myDate&&cloudDate<=myDate)return; // local à jour ou plus récent → ne rien écraser
+    const [dCli,dImg]=await Promise.all([jbGet(JB_BINS.clients),jbGet(JB_BINS.images)]);
+    if(dOrd?.ORDERS)ORDERS=dOrd.ORDERS;
+    if(dCol?.COLORS){COLORS=dCol.COLORS;COLORS.forEach(c=>{if(!c.zh)c.zh="";if(!c.group)c.group="Autres";});}
+    if(dCli?.CLIENTS)CLIENTS=dCli.CLIENTS;
+    if(dCli?.MEM)MEM=dCli.MEM;
+    if(dImg?.PROD_IMAGES){Object.assign(PROD_IMAGES,dImg.PROD_IMAGES);saveImages();}
+    localStorage.setItem("cm-local-ts",cloudDate);
+    localStorage.setItem("cm-last-sync",cloudDate);
+    save();
+    refreshAll();
+    showSyncStatus("ok");
+  }catch(e){
+    console.error("autoCloudPullSilent:",e);
+  }
+}
+
 function applyCloudData(d){
   if(d.COLORS){COLORS=d.COLORS;COLORS.forEach(c=>{if(!c.zh)c.zh="";if(!c.group)c.group="Autres";});}
   if(d.ORDERS)ORDERS=d.ORDERS;
@@ -723,7 +779,7 @@ function applyCloudData(d){
   localStorage.setItem("cm-local-ts", ts);
   localStorage.setItem("cm-last-sync", ts);
   save(); /* local only */
-  renderAll();
+  refreshAll();
 }
 
 function fmtDateTime(iso){
@@ -890,6 +946,7 @@ function renderCatalogTab(){
 }
 
 async function pushCatalogToGitHub(){
+  if(!checkSyncPassword())return;
   const cfg=ghCfg();
   const statusEl=document.getElementById("gh-status");
   if(!cfg.owner||!cfg.repo||!cfg.token){statusEl.textContent="⚠ Renseignez owner / repo / token d'abord";return;}
@@ -1732,6 +1789,7 @@ go("home",document.querySelector(".tab"));
 initSupSelect();
 showSyncStatus("idle");
 pullCatalogFromGitHub(true); // rafraîchit le catalogue en arrière-plan si configuré
+autoCloudPullSilent(); // rafraîchit commandes/couleurs/clients si le cloud est plus récent
 // Persistent event delegation for quick-delete and edit on order cards
 document.addEventListener("click", function(e){
   const del = e.target.closest(".oc-del-btn");
