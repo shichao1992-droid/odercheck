@@ -156,6 +156,8 @@ input,select,button{font-family:var(--font);}
 .oc-soon{font-size:10px;font-weight:600;color:var(--warn);padding:2px 8px;background:var(--warn-bg);border:1px solid var(--warn-bd);border-radius:4px;margin-bottom:2px;display:inline-block;}
 .oc-edit-btn{background:none;border:none;border-left:1px solid var(--bd);color:var(--t3);cursor:pointer;font-size:14px;padding:0 10px;transition:all .15s;flex-shrink:0;}
 .oc-edit-btn:hover{background:var(--info-bg);color:var(--info);}
+.oc-img-btn{background:none;border:none;border-left:1px solid var(--bd);color:var(--t3);cursor:pointer;font-size:14px;padding:0 10px;transition:all .15s;flex-shrink:0;}
+.oc-img-btn:hover{background:var(--ok-bg);color:var(--ok);}
 .edit-banner{background:var(--info-bg);border:1px solid var(--info-bd);color:var(--info);padding:8px 14px;border-radius:var(--rs);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:500;}
 .sort-btns{display:flex;gap:4px;}
 .sort-btn{padding:3px 8px;border-radius:12px;border:1px solid var(--bd);background:transparent;color:var(--t2);font-size:10px;cursor:pointer;transition:all .15s;}
@@ -239,6 +241,7 @@ input,select,button{font-family:var(--font);}
     <button class="tab" onclick="go('cmd',this)">Commande</button>
     <button class="tab" onclick="go('nuancier',this)">Nuancier</button>
     <button class="tab" onclick="go('clients',this)">Clients</button>
+    <button class="tab" onclick="go('catalogue',this)">Catalogue</button>
   </div>
 </div>
 
@@ -351,6 +354,49 @@ input,select,button{font-family:var(--font);}
         <div class="fld" style="max-width:150px;"><label>Type</label><select id="nc-t"><option value="boutique">🏪 Boutique</option><option value="maison">🏠 Maison</option><option value="autre">📦 Autre</option></select></div>
         <button class="btn btn-ok" style="align-self:flex-end" onclick="addClient()">+ Ajouter</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- CATALOGUE -->
+<div id="v-catalogue" style="display:none">
+  <div class="page">
+    <div style="font-size:15px;font-weight:600;margin-bottom:14px;">Catalogue produits / 产品目录</div>
+
+    <div class="card">
+      <div class="card-title">Importer Excel 导入表格</div>
+      <div class="hint" style="margin-bottom:8px;">Colonnes attendues : Référence, Nom, Catégorie, Couleur, Type (COVER/PRODUIT), N°, URL Image</div>
+      <label class="btn btn-ok" style="cursor:pointer;display:inline-flex;">
+        📥 Choisir un fichier Excel
+        <input type="file" id="cat-imp" accept=".xlsx,.xls" style="display:none" onchange="importCatalogExcel(event)"/>
+      </label>
+      <div id="cat-imp-status" style="margin-top:10px;font-size:12px;color:var(--t2);"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">État actuel / 目前状态</div>
+      <div id="cat-stats" style="font-size:13px;color:var(--t2);"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Synchronisation GitHub</div>
+      <div class="row">
+        <div class="fld"><label>Owner (compte GitHub)</label><input id="gh-owner" placeholder="shichao1992-droid"/></div>
+        <div class="fld"><label>Repo</label><input id="gh-repo" placeholder="commande"/></div>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <div class="fld"><label>Fichier</label><input id="gh-path" placeholder="products.json"/></div>
+        <div class="fld" style="max-width:110px;"><label>Branche</label><input id="gh-branch" placeholder="main"/></div>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <div class="fld"><label>Token GitHub (accès Contents)</label><input id="gh-token" type="password" placeholder="ghp_…"/></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+        <button class="btn" onclick="saveGhCfg()">💾 Enregistrer config</button>
+        <button class="btn btn-info" onclick="pullCatalogFromGitHub(false)">☁️↓ Charger depuis GitHub</button>
+        <button class="btn btn-ok" onclick="pushCatalogToGitHub()">☁️↑ Pousser vers GitHub</button>
+      </div>
+      <div id="gh-status" style="margin-top:10px;font-size:12px;color:var(--t2);"></div>
     </div>
   </div>
 </div>
@@ -704,6 +750,176 @@ let sortMode="date"; // "date" or "dlv"
 let editingOrderId=null; // if editing an existing order
 const PROD_IMAGES=JSON.parse(localStorage.getItem("cm-prod-img")||"{}"); // {ref: url}
 function saveImages(){localStorage.setItem("cm-prod-img",JSON.stringify(PROD_IMAGES));}
+
+/* ═══ CATALOGUE PRODUITS (import Excel + sync GitHub) ═══ */
+let CATALOG=(function(){try{return JSON.parse(localStorage.getItem("cm-catalog")||"null")||{refs:{},_v:"cat1",_d:""};}catch(e){return {refs:{},_v:"cat1",_d:""};}})();
+function saveCatalogLocal(){localStorage.setItem("cm-catalog",JSON.stringify(CATALOG));}
+
+function ghCfg(){
+  try{return JSON.parse(localStorage.getItem("cm-gh-cfg")||"null")||{owner:"",repo:"",token:"",path:"products.json",branch:"main"};}
+  catch(e){return {owner:"",repo:"",token:"",path:"products.json",branch:"main"};}
+}
+function saveGhCfg(){
+  const cfg={
+    owner:document.getElementById("gh-owner").value.trim(),
+    repo:document.getElementById("gh-repo").value.trim(),
+    token:document.getElementById("gh-token").value.trim(),
+    path:document.getElementById("gh-path").value.trim()||"products.json",
+    branch:document.getElementById("gh-branch").value.trim()||"main"
+  };
+  localStorage.setItem("cm-gh-cfg",JSON.stringify(cfg));
+  showToast("💾 Config GitHub enregistrée");
+}
+function fillGhCfgInputs(){
+  const cfg=ghCfg();
+  const map={"gh-owner":cfg.owner,"gh-repo":cfg.repo,"gh-token":cfg.token,"gh-path":cfg.path,"gh-branch":cfg.branch};
+  Object.entries(map).forEach(([id,v])=>{const el=document.getElementById(id);if(el)el.value=v||"";});
+}
+
+function findOrCreateColorId(labelRaw,createdSet){
+  const label=(labelRaw||"").toString().trim();
+  if(!label)return null;
+  const n=nrm(label);
+  let c=COLORS.find(x=>nrm(x.name)===n);
+  if(c)return c.id;
+  const id="cat_"+n.replace(/[^a-z0-9]+/g,"_").slice(0,24)+"_"+Math.random().toString(36).slice(2,6);
+  const title=label.charAt(0).toUpperCase()+label.slice(1).toLowerCase();
+  COLORS.push({id,name:title,zh:"",hex:"#CCCCCC",group:"À vérifier (import)"});
+  if(createdSet)createdSet.add(id);
+  return id;
+}
+
+function parseCatalogWorkbook(file){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=(e)=>{
+      try{
+        const wb=XLSX.read(e.target.result,{type:"array"});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+        const refs={};
+        const created=new Set();
+        for(let i=1;i<rows.length;i++){
+          const row=rows[i];
+          const ref=(row[0]||"").toString().trim();
+          if(!ref)continue;
+          const nom=(row[1]||"").toString().trim();
+          const cat=(row[2]||"").toString().trim();
+          const coul=(row[3]||"").toString().trim();
+          const typ=(row[4]||"").toString().trim().toUpperCase();
+          const url=(row[6]||"").toString().trim();
+          if(!refs[ref])refs[ref]={nom,cat,cover:"",colors:{}};
+          if(!refs[ref].nom&&nom)refs[ref].nom=nom;
+          if(typ==="COVER"){
+            if(url)refs[ref].cover=url;
+          } else if(typ==="PRODUIT"&&coul){
+            const cid=findOrCreateColorId(coul,created);
+            if(cid){
+              if(!refs[ref].colors[cid])refs[ref].colors[cid]={label:coul.toUpperCase(),urls:[]};
+              if(url&&!refs[ref].colors[cid].urls.includes(url))refs[ref].colors[cid].urls.push(url);
+            }
+          }
+        }
+        resolve({refs,created});
+      }catch(err){reject(err);}
+    };
+    reader.onerror=()=>reject(new Error("Lecture fichier échouée"));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+async function importCatalogExcel(e){
+  const file=e.target.files[0];if(!file)return;
+  const statusEl=document.getElementById("cat-imp-status");
+  statusEl.textContent="⏳ Import en cours…";
+  try{
+    if(typeof XLSX==="undefined"){statusEl.textContent="⏳ Chargement de la librairie, réessayez dans 1s…";setTimeout(()=>importCatalogExcel(e),1200);return;}
+    const {refs,created}=await parseCatalogWorkbook(file);
+    CATALOG={refs,_v:"cat1",_d:new Date().toISOString()};
+    saveCatalogLocal();
+    save(); // persist COLORS (nouvelles couleurs éventuelles)
+    renderCatalogTab();
+    const nbRefs=Object.keys(refs).length;
+    statusEl.textContent=`✅ ${nbRefs} produits importés — ${created.size} nouvelle(s) couleur(s) créée(s) (à vérifier dans Nuancier)`;
+    showToast(`✅ Catalogue importé — ${nbRefs} produits`);
+    if(created.size)renderN();
+  }catch(err){
+    console.error(err);
+    statusEl.textContent="⚠ Erreur de lecture du fichier Excel";
+  }
+  e.target.value="";
+}
+
+function renderCatalogTab(){
+  fillGhCfgInputs();
+  const nbRefs=Object.keys(CATALOG.refs||{}).length;
+  const statsEl=document.getElementById("cat-stats");
+  if(statsEl){
+    statsEl.innerHTML=nbRefs
+      ? `${nbRefs} produits en catalogue — dernière mise à jour : ${CATALOG._d?fmtDate(CATALOG._d):"—"}`
+      : `Aucun catalogue chargé pour l'instant.`;
+  }
+}
+
+async function pushCatalogToGitHub(){
+  const cfg=ghCfg();
+  const statusEl=document.getElementById("gh-status");
+  if(!cfg.owner||!cfg.repo||!cfg.token){statusEl.textContent="⚠ Renseignez owner / repo / token d'abord";return;}
+  statusEl.textContent="⏳ Envoi vers GitHub…";
+  try{
+    const apiUrl=`https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${encodeURIComponent(cfg.path)}`;
+    let sha;
+    try{
+      const getRes=await fetch(apiUrl+`?ref=${encodeURIComponent(cfg.branch)}`,{
+        headers:{Authorization:"Bearer "+cfg.token,Accept:"application/vnd.github+json"}
+      });
+      if(getRes.ok){const j=await getRes.json();sha=j.sha;}
+    }catch(e){}
+    const content=btoa(unescape(encodeURIComponent(JSON.stringify(CATALOG))));
+    const body={message:"Update products.json — "+new Date().toISOString(),content,branch:cfg.branch};
+    if(sha)body.sha=sha;
+    const putRes=await fetch(apiUrl,{
+      method:"PUT",
+      headers:{Authorization:"Bearer "+cfg.token,Accept:"application/vnd.github+json","Content-Type":"application/json"},
+      body:JSON.stringify(body)
+    });
+    if(putRes.ok){
+      statusEl.textContent="✅ Catalogue poussé sur GitHub avec succès";
+      showToast("☁️↑ Catalogue synchronisé sur GitHub");
+    } else {
+      const t=await putRes.text();
+      console.error("GitHub push error:",putRes.status,t);
+      statusEl.textContent="⚠ Erreur GitHub ("+putRes.status+")";
+    }
+  }catch(err){
+    console.error(err);
+    statusEl.textContent="⚠ Erreur réseau lors de l'envoi";
+  }
+}
+
+async function pullCatalogFromGitHub(silent){
+  const cfg=ghCfg();
+  const statusEl=document.getElementById("gh-status");
+  if(!cfg.owner||!cfg.repo){if(!silent&&statusEl)statusEl.textContent="⚠ Renseignez owner / repo d'abord";return;}
+  try{
+    const url=`https://raw.githubusercontent.com/${cfg.owner}/${cfg.repo}/${cfg.branch}/${cfg.path}?t=${Date.now()}`;
+    const res=await fetch(url);
+    if(!res.ok){if(!silent&&statusEl)statusEl.textContent="⚠ Fichier introuvable sur GitHub ("+res.status+")";return;}
+    const data=await res.json();
+    if(data&&data.refs){
+      CATALOG=data;
+      saveCatalogLocal();
+      if(!silent){
+        if(statusEl)statusEl.textContent=`✅ Catalogue chargé — ${Object.keys(data.refs).length} produits`;
+        showToast("☁️↓ Catalogue chargé depuis GitHub");
+      }
+      renderCatalogTab();
+    }
+  }catch(err){
+    console.error(err);
+    if(!silent&&statusEl)statusEl.textContent="⚠ Erreur de chargement depuis GitHub";
+  }
+}
 let histSupFilter="";
 let editingColor=null, editingCL=null;
 let freeSrchVal="";
@@ -774,7 +990,7 @@ function colorLabel(cid,ref){
 
 /* ═══ TABS ═══ */
 function go(t,el){
-  ["home","cmd","nuancier","clients"].forEach(v=>document.getElementById("v-"+v).style.display="none");
+  ["home","cmd","nuancier","clients","catalogue"].forEach(v=>document.getElementById("v-"+v).style.display="none");
   document.querySelectorAll(".tab").forEach(b=>b.classList.remove("active"));
   document.getElementById("v-"+t).style.display="block";
   el.classList.add("active");
@@ -782,6 +998,7 @@ function go(t,el){
   if(t==="cmd"){renderCtabs();onRef();initSupSelect();}
   if(t==="nuancier")renderN();
   if(t==="clients")renderClients();
+  if(t==="catalogue")renderCatalogTab();
 }
 
 /* ═══ HOME ═══ */
@@ -865,6 +1082,7 @@ function renderHome(){
           </div>
         </div>
       </div>
+      <button class="oc-img-btn" data-imgexp="${o.id}" title="Image commande 生成订单确认图">🖼️</button>
       <button class="oc-edit-btn" data-edit="${o.id}" title="Modifier">✏️</button>
       <button class="oc-del-btn" data-id="${o.id}" title="Supprimer">🗑</button>
       </div>
@@ -950,10 +1168,13 @@ function addMem(cid,ref,colorId){const k=cid+":"+ref;if(!MEM[k])MEM[k]={};MEM[k]
 
 function onRef(){
   const ref=document.getElementById("c-ref").value.trim();
+  const cat=CATALOG.refs[ref];
   if(PROD_NAMES[ref])document.getElementById("c-desc").value=PROD_NAMES[ref];
-  // Load saved image for this REF
+  else if(cat&&cat.nom)document.getElementById("c-desc").value=cat.nom;
+  // Load saved image for this REF (priorité : image déjà choisie manuellement > catalogue)
   if(!editingOrderId){
-    const savedImg=PROD_IMAGES[ref]||"";
+    let savedImg=PROD_IMAGES[ref]||"";
+    if(!savedImg&&cat&&cat.cover)savedImg=cat.cover;
     document.getElementById("c-img").value=savedImg;
     onImgUrl();
   }
@@ -991,7 +1212,8 @@ function updateMemChips(){
 
 function updateRefChips(){
   const ref=document.getElementById("c-ref").value.trim();
-  const ids=PROD_COLORS[ref];
+  const cat=CATALOG.refs[ref];
+  const ids=cat?Object.keys(cat.colors):PROD_COLORS[ref];
   const box=document.getElementById("ref-chips");
   if(!ids||!ref){box.style.display="none";return;}
   box.style.display="block";
@@ -1323,6 +1545,97 @@ function showToast(msg){
 }
 document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeMC();closeMCL();}});
 
+/* ═══ EXPORT IMAGE COMMANDE (canvas) ═══ */
+function loadImageSafe(url){
+  return new Promise((resolve)=>{
+    if(!url){resolve(null);return;}
+    const proxied="https://wsrv.nl/?url="+encodeURIComponent(url)+"&output=jpg";
+    const img=new Image();
+    img.crossOrigin="anonymous";
+    img.onload=()=>resolve(img);
+    img.onerror=()=>resolve(null);
+    img.src=proxied;
+  });
+}
+
+async function exportOrderImage(id){
+  const o=ORDERS.find(x=>x.id===id);if(!o)return;
+  showToast("⏳ Génération de l'image…");
+  try{
+    const W=680,PAD=32,ROWH=54,HEADH=56,FOOTH=64;
+    const rawImg=o.imageUrl||PROD_IMAGES[o.ref]||(CATALOG.refs[o.ref]&&CATALOG.refs[o.ref].cover)||"";
+    const img=rawImg?await loadImageSafe(rawImg):null;
+    const photoH=img?W:0;
+    const infoH=94;
+    const totalH=HEADH+photoH+infoH+o.lines.length*ROWH+FOOTH;
+    const canvas=document.createElement("canvas");
+    canvas.width=W;canvas.height=totalH;
+    const ctx=canvas.getContext("2d");
+    ctx.fillStyle="#FFFFFF";ctx.fillRect(0,0,W,totalH);
+
+    ctx.fillStyle="#1A1A1A";ctx.font="600 15px sans-serif";ctx.textAlign="left";
+    ctx.fillText("C'MÉLODIE",PAD,32);
+    ctx.fillStyle="#8A847C";ctx.font="12px sans-serif";ctx.textAlign="right";
+    ctx.fillText(new Date(o.date).toLocaleDateString("zh-CN"),W-PAD,32);
+    ctx.textAlign="left";
+    ctx.strokeStyle="#E6E2DC";ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(0,HEADH);ctx.lineTo(W,HEADH);ctx.stroke();
+
+    let y=HEADH;
+    if(img){ctx.drawImage(img,0,y,W,photoH);y+=photoH;}
+
+    y+=32;
+    ctx.fillStyle="#1A1A1A";ctx.font="600 20px sans-serif";
+    ctx.fillText(o.ref,PAD,y);
+    y+=24;
+    ctx.fillStyle="#6B6560";ctx.font="14px sans-serif";
+    ctx.fillText(o.desc||"",PAD,y);
+    y+=22;
+    ctx.fillStyle="#0C4A8A";ctx.font="12px sans-serif";
+    ctx.fillText((o.clientName||o.clientId||"")+(o.supplier?"   ·   "+o.supplier:""),PAD,y);
+    y+=16;
+    ctx.strokeStyle="#E6E2DC";
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();
+
+    o.lines.forEach(l=>{
+      y+=ROWH;
+      ctx.fillStyle=l.hex||"#CCCCCC";
+      ctx.beginPath();ctx.arc(PAD+8,y-24,9,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle="#1A1A1A";ctx.font="600 16px sans-serif";
+      ctx.fillText(l.colorNameZh||l.colorNameFr||"",PAD+28,y-26);
+      if(l.colorNameZh&&l.colorNameFr){
+        ctx.fillStyle="#B0A9A2";ctx.font="11px sans-serif";
+        ctx.fillText(l.colorNameFr,PAD+28,y-9);
+      }
+      ctx.fillStyle="#1A1A1A";ctx.font="600 16px sans-serif";ctx.textAlign="right";
+      ctx.fillText(l.qty+" 件",W-PAD,y-18);
+      ctx.textAlign="left";
+      ctx.strokeStyle="#E6E2DC";
+      ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();
+    });
+
+    y+=FOOTH-16;
+    const total=o.lines.reduce((s,l)=>s+l.qty,0);
+    ctx.fillStyle="#6B6560";ctx.font="13px sans-serif";
+    ctx.fillText("共计",PAD,y);
+    ctx.fillStyle="#1A1A1A";ctx.font="600 18px sans-serif";ctx.textAlign="right";
+    ctx.fillText(total+" 件",W-PAD,y);
+    ctx.textAlign="left";
+
+    canvas.toBlob(blob=>{
+      if(!blob){showToast("⚠ Erreur génération image");return;}
+      const a=document.createElement("a");
+      a.href=URL.createObjectURL(blob);
+      a.download="commande_"+o.ref+"_"+o.date.slice(0,10)+".png";
+      a.click();
+      showToast("🖼️ Image générée");
+    },"image/png");
+  }catch(err){
+    console.error(err);
+    showToast("⚠ Erreur génération image (photo bloquée ?)");
+  }
+}
+
 /* ═══ BOOT ═══ */
 load();
 initGrpBar();
@@ -1330,12 +1643,15 @@ renderN();
 go("home",document.querySelector(".tab"));
 initSupSelect();
 showSyncStatus("idle");
+pullCatalogFromGitHub(true); // rafraîchit le catalogue en arrière-plan si configuré
 // Persistent event delegation for quick-delete and edit on order cards
 document.addEventListener("click", function(e){
   const del = e.target.closest(".oc-del-btn");
   if(del){ e.stopPropagation(); delOrder(del.dataset.id); return; }
   const edit = e.target.closest(".oc-edit-btn");
   if(edit){ e.stopPropagation(); editOrder(edit.dataset.edit); return; }
+  const imgexp = e.target.closest(".oc-img-btn");
+  if(imgexp){ e.stopPropagation(); exportOrderImage(imgexp.dataset.imgexp); return; }
 });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
