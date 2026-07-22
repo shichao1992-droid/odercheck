@@ -293,6 +293,7 @@ input,select,button{font-family:var(--font);}
             <div class="fld"><label>Description 描述</label><input id="c-desc" placeholder="Short TU44-50…"/></div>
           </div>
           <div class="row" style="margin-top:8px;">
+            <div class="fld" style="max-width:160px;"><label>Date commande 下单日期</label><input type="date" id="c-odate"/></div>
             <div class="fld" style="max-width:160px;"><label>Livraison 收货日期</label><input type="date" id="c-dlv"/></div>
             <div class="fld" style="max-width:170px;"><label>Fournisseur 供应商</label><select id="c-sup"><option value="">— Sélectionner —</option></select></div>
           </div>
@@ -1023,7 +1024,12 @@ function go(t,el){
   document.getElementById("v-"+t).style.display="block";
   el.classList.add("active");
   if(t==="home")renderHome();
-  if(t==="cmd"){renderCtabs();onRef();initSupSelect();}
+  if(t==="cmd"){
+    renderCtabs();
+    const odateEl=document.getElementById("c-odate");
+    if(odateEl&&!odateEl.value)odateEl.value=new Date().toISOString().slice(0,10);
+    onRef();initSupSelect();
+  }
   if(t==="nuancier")renderN();
   if(t==="clients")renderClients();
   if(t==="catalogue")renderCatalogTab();
@@ -1039,6 +1045,8 @@ function filtOrd(){
       if(ad!==bd)return ad.localeCompare(bd);
       return new Date(b.date)-new Date(a.date);
     });
+  } else {
+    list=[...list].sort((a,b)=>new Date(b.date)-new Date(a.date));
   }
   return list;
 }
@@ -1146,6 +1154,7 @@ function editOrder(id){
   setClient(o.clientId);
   document.getElementById("c-ref").value=o.ref;
   document.getElementById("c-desc").value=o.desc||"";
+  document.getElementById("c-odate").value=(o.date||"").slice(0,10);
   document.getElementById("c-dlv").value=o.deliveryDate||"";
   const supSel=document.getElementById("c-sup");
   supSel.value=o.supplier||"";
@@ -1358,6 +1367,7 @@ function clearCmd(){
   if(OL.length&&!confirm("Vider ?"))return;
   OL=[];
   ["c-ref","c-desc","c-dlv","c-sup","c-img"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("c-odate").value=new Date().toISOString().slice(0,10);
   document.getElementById("c-img-preview").innerHTML='<div class="prod-img-ph">📷 Coller<br>une URL</div>';
   document.getElementById("cat-photo-picker").style.display="none";
   document.getElementById("dupli").style.display="none";
@@ -1372,6 +1382,7 @@ function clearCmd(){
 function validateCmd(){
   const ref=document.getElementById("c-ref").value.trim();
   const desc=document.getElementById("c-desc").value.trim();
+  const odateVal=document.getElementById("c-odate").value;
   const dlv=document.getElementById("c-dlv").value;
   const imgUrl=document.getElementById("c-img").value.trim();
   const lines=OL.filter(l=>l.qty>0);
@@ -1382,6 +1393,10 @@ function validateCmd(){
   const sup=document.getElementById("c-sup").value||"";
   // Save image URL per REF
   if(ref&&imgUrl){PROD_IMAGES[ref]=imgUrl;saveImages();}
+  // Date de commande : garde l'heure actuelle pour le tri, mais utilise le jour choisi par l'utilisateur
+  const now=new Date();
+  const timePart=now.toTimeString().slice(0,8);
+  const orderDate=odateVal?new Date(odateVal+"T"+timePart).toISOString():now.toISOString();
 
   if(editingOrderId){
     // ── MODE EDIT ──
@@ -1391,6 +1406,7 @@ function validateCmd(){
       o.clientId=activeClient; o.clientName=cname(activeClient);
       o.supplier=sup; o.deliveryDate=dlv||null;
       o.imageUrl=imgUrl||undefined;
+      o.date=odateVal?orderDate:o.date;
       o.lines=JSON.parse(JSON.stringify(lines));
     }
     save();
@@ -1402,7 +1418,7 @@ function validateCmd(){
     go("home",document.querySelectorAll(".tab")[0]);
   } else {
     // ── MODE CRÉATION ──
-    const order={id:uid(),date:new Date().toISOString(),ref,desc:desc||ref,
+    const order={id:uid(),date:orderDate,ref,desc:desc||ref,
       clientId:activeClient,clientName:cname(activeClient),
       supplier:sup, imageUrl:imgUrl||undefined,
       deliveryDate:dlv||null,received:false,lines:JSON.parse(JSON.stringify(lines))};
@@ -1583,7 +1599,7 @@ function exportXlsx(order){
   const ws=XLSX.utils.aoa_to_sheet(buildRows(order));
   ws["!cols"]=[{wch:26},{wch:14},{wch:14},{wch:10}];
   XLSX.utils.book_append_sheet(wb,ws,"订单");
-  XLSX.writeFile(wb,`订单_${(o.clientName||"")}_${o.ref}_${o.date.slice(0,10)}.xlsx`);
+  XLSX.writeFile(wb,`订单_${(order.clientName||"")}_${order.ref}_${order.date.slice(0,10)}.xlsx`);
   showToast("📥 Excel téléchargé");
 }
 function exportAllXlsx(){
