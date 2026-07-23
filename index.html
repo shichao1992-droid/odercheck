@@ -876,10 +876,13 @@ const GH_DEFAULT_CFG={
   branch:"main"
 };
 function ghCfg(){
-  try{
-    const saved=JSON.parse(localStorage.getItem("cm-gh-cfg")||"null");
-    return saved?{...GH_DEFAULT_CFG,...saved}:{...GH_DEFAULT_CFG};
-  }catch(e){return {...GH_DEFAULT_CFG};}
+  let saved={};
+  try{saved=JSON.parse(localStorage.getItem("cm-gh-cfg")||"null")||{};}catch(e){saved={};}
+  const cfg={...GH_DEFAULT_CFG};
+  Object.keys(GH_DEFAULT_CFG).forEach(k=>{
+    if(saved[k]&&String(saved[k]).trim())cfg[k]=saved[k]; // n'écrase que si une vraie valeur a été saisie
+  });
+  return cfg;
 }
 function saveGhCfg(){
   const cfg={
@@ -1860,6 +1863,10 @@ async function exportOrderImage(id){
 }
 
 /* ═══ BOOT ═══ */
+if(!localStorage.getItem("cm-gh-cfg-v2")){
+  localStorage.removeItem("cm-gh-cfg"); // purge l'ancienne config obsolète (repo "commande" au lieu de "odercheck")
+  localStorage.setItem("cm-gh-cfg-v2","1");
+}
 load();
 mergeSeasonColors(); // ajoute les nouvelles couleurs Hiver 2026/2027 si absentes
 initGrpBar();
