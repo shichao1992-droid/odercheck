@@ -867,9 +867,19 @@ function catGet(refRaw){
   return real?CATALOG.refs[real]:null;
 }
 
+/* Config GitHub par défaut, intégrée dans le code — évite d'avoir à retaper le token */
+const GH_DEFAULT_CFG={
+  owner:"shichao1992-droid",
+  repo:"odercheck",
+  token:"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",
+  path:"products.json",
+  branch:"main"
+};
 function ghCfg(){
-  try{return JSON.parse(localStorage.getItem("cm-gh-cfg")||"null")||{owner:"",repo:"",token:"",path:"products.json",branch:"main"};}
-  catch(e){return {owner:"",repo:"",token:"",path:"products.json",branch:"main"};}
+  try{
+    const saved=JSON.parse(localStorage.getItem("cm-gh-cfg")||"null");
+    return saved?{...GH_DEFAULT_CFG,...saved}:{...GH_DEFAULT_CFG};
+  }catch(e){return {...GH_DEFAULT_CFG};}
 }
 function saveGhCfg(){
   const cfg={
