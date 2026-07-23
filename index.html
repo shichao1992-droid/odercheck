@@ -360,6 +360,7 @@ input,select,button{font-family:var(--font);}
 <div id="v-nuancier">
   <div class="n-toolbar">
     <div class="sw"><input id="n-srch" placeholder="Numéro, nom, 中文…" oninput="renderN()"/><button class="sw-x" onclick="document.getElementById('n-srch').value='';renderN()">×</button></div>
+    <button class="btn btn-info" onclick="bulkGuessColors()">🎨 Deviner les couleurs 自动猜色</button>
     <button class="btn btn-ok" onclick="openAddColor(null)">+ Couleur</button>
   </div>
   <div class="grp-bar" id="grp-bar"></div>
@@ -591,6 +592,30 @@ const DC=[
   {id:"11177",name:"Anthracite",     zh:"",       hex:"#303438",group:"Gris"},
   {id:"364",  name:"Gris noir",      zh:"",       hex:"#101418",group:"Gris"},
 ];
+
+/* Nouvelles couleurs Hiver 2026/2027 (carte teinturerie) — fusionnées une fois au démarrage */
+const SEASON_COLORS_H2627=[
+  {id:"19987",name:"Vert forêt foncé", zh:"深森林绿",hex:"#2E3A28",group:"Hiver 2026/2027"},
+  {id:"19746",name:"Brun expresso",    zh:"深棕",   hex:"#2E2119",group:"Hiver 2026/2027"},
+  {id:"18321",name:"Vert olive doux",  zh:"浅橄榄绿",hex:"#8A9A3C",group:"Hiver 2026/2027"},
+  {id:"19933",name:"Vert sapin",       zh:"深绿",   hex:"#4C5C3A",group:"Hiver 2026/2027"},
+  {id:"16586",name:"Marine foncé",     zh:"深藏青", hex:"#1B2540",group:"Hiver 2026/2027"},
+  {id:"13439",name:"Ambre doré",       zh:"琥珀金", hex:"#D99A28",group:"Hiver 2026/2027"},
+  {id:"12647",name:"Jaune vert pâle",  zh:"浅黄绿", hex:"#D6D168",group:"Hiver 2026/2027"},
+  {id:"19986",name:"Rose mauve",       zh:"灰玫瑰", hex:"#C69A9B",group:"Hiver 2026/2027"},
+  {id:"15516",name:"Brun chocolat",    zh:"巧克力棕",hex:"#4A2A24",group:"Hiver 2026/2027"},
+  {id:"13793",name:"Indigo foncé",     zh:"深靛蓝", hex:"#2A2F63",group:"Hiver 2026/2027"},
+  {id:"19927",name:"Rouge écarlate",   zh:"鲜红",   hex:"#D9291E",group:"Hiver 2026/2027"},
+  {id:"lavagna",name:"Ardoise",        zh:"石板灰", hex:"#2B2E33",group:"Hiver 2026/2027"},
+];
+function mergeSeasonColors(){
+  let added=0;
+  SEASON_COLORS_H2627.forEach(c=>{
+    if(!COLORS.find(x=>x.id===c.id)){COLORS.push({...c});added++;}
+  });
+  if(added){save();}
+  return added;
+}
 
 /* Produits liés aux couleurs — conservé pour mémoire */
 const PROD_COLORS = {
@@ -863,6 +888,43 @@ function fillGhCfgInputs(){
   Object.entries(map).forEach(([id,v])=>{const el=document.getElementById(id);if(el)el.value=v||"";});
 }
 
+/* Dictionnaire couleur (nom normalisé -> hex) pour deviner automatiquement les couleurs importées */
+const COLOR_HEX_GUESS={
+  "camel":"#C19A6B","vert d eau":"#A8D8C9","jaune":"#F5D000","vert":"#4A9B5E",
+  "fuschia":"#C9247A","fuchsia":"#C9247A","rose":"#E8A0BF","lila":"#B695C0","nude":"#E3BFA0",
+  "rose clair":"#F2C4D6","brique":"#A6512C","vert bouteille":"#1F4D36","rouge":"#C41E3A",
+  "bleu royal":"#1E3A8A","corail":"#FF7256","jeans":"#4A6FA5","jean":"#4A6FA5","moka":"#6F4E37",
+  "chair":"#EDC9AF","denim":"#3B5B7D","bleu":"#2A5CAA","pepe rosa":"#E893B0","or":"#D4AF37",
+  "biscuit":"#C9A66B","cavallino":"#8B5A2B","moutard":"#C9A227","moutarde":"#C9A227",
+  "noir lurex":"#1A1A1A","noirdoree":"#2B2416","noir doree":"#2B2416","noirargent":"#26282B",
+  "noir argent":"#26282B","argent":"#C0C0C0","vert gucci":"#00693E","indigo":"#3F51B5",
+  "champagne":"#F0E2C0","canard":"#046E75","bronze":"#8C6239","dore":"#D4AF37","tabac":"#7A5C3E",
+  "beige argente":"#C9C0B0","petrole":"#0C3C44","vert flu":"#A6FF00","vert fluo":"#A6FF00",
+  "camel 2":"#B08D57","orange 2":"#E8590C","sable":"#D9C7A3","jade":"#00A86B",
+  "vert pomme":"#8DB600","taupe clair":"#C4B7A6","gris chine":"#9A9A9A","orange fluo":"#FF6700",
+  "peche":"#FFCBA4","vert tiffany":"#0ABAB5","turquoise":"#30D5C8","rouge fonce":"#7A0C0C",
+  "jean fonce":"#26415C","jaune pale":"#F5E6A8","or fronce":"#B8860B","or force":"#B8860B",
+  "kaki argente":"#9B9478","vert anis":"#9DC209","kaki":"#7A7548","marine":"#1B2A4A",
+  "gris":"#8C8C88","blanc":"#F5F5F0","ecru":"#EDE0CE","ivoire":"#E2D5BF","beige":"#C8B898"
+};
+function guessHex(labelRaw){
+  const key=nrm((labelRaw||"").toString().trim()).replace(/['’\/\-]+/g," ").replace(/\s+/g," ").trim();
+  return COLOR_HEX_GUESS[key]||null;
+}
+
+function bulkGuessColors(){
+  let fixed=0,left=0;
+  COLORS.forEach(c=>{
+    if(c.group==="À vérifier (import)"){
+      const g=guessHex(c.name);
+      if(g){c.hex=g;c.group="Import (auto)";fixed++;}
+      else left++;
+    }
+  });
+  if(fixed){save();renderN();}
+  showToast(fixed?`🎨 ${fixed} couleur(s) devinée(s)`+(left?` — ${left} restent à vérifier`:""):"Aucune couleur reconnue à deviner");
+}
+
 function findOrCreateColorId(labelRaw,createdSet){
   const label=(labelRaw||"").toString().trim();
   if(!label)return null;
@@ -871,8 +933,9 @@ function findOrCreateColorId(labelRaw,createdSet){
   if(c)return c.id;
   const id="cat_"+n.replace(/[^a-z0-9]+/g,"_").slice(0,24)+"_"+Math.random().toString(36).slice(2,6);
   const title=label.charAt(0).toUpperCase()+label.slice(1).toLowerCase();
-  COLORS.push({id,name:title,zh:"",hex:"#CCCCCC",group:"À vérifier (import)"});
-  if(createdSet)createdSet.add(id);
+  const guess=guessHex(label);
+  COLORS.push({id,name:title,zh:"",hex:guess||"#CCCCCC",group:guess?"Import (auto)":"À vérifier (import)"});
+  if(createdSet&&!guess)createdSet.add(id);
   return id;
 }
 
@@ -1788,6 +1851,7 @@ async function exportOrderImage(id){
 
 /* ═══ BOOT ═══ */
 load();
+mergeSeasonColors(); // ajoute les nouvelles couleurs Hiver 2026/2027 si absentes
 initGrpBar();
 renderN();
 go("home",document.querySelector(".tab"));
