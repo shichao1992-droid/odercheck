@@ -43,7 +43,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--t);font-size:14px;
 input,select,button{font-family:var(--font);}
 
 /* NAV */
-.nav{position:sticky;top:0;z-index:100;background:var(--s);border-bottom:1px solid var(--bd);}
+.nav{position:sticky;top:0;z-index:100;background:var(--s);border-bottom:1px solid var(--bd);padding-top:env(safe-area-inset-top,0px);}
 .nav-top{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;gap:8px;}
 .brand{font-size:17px;font-weight:700;letter-spacing:.01em;}
 .data-btns{display:flex;gap:6px;align-items:center;}
@@ -1907,15 +1907,19 @@ if(!localStorage.getItem("cm-gh-cfg-v2")){
   localStorage.setItem("cm-gh-cfg-v2","1");
 }
 load();
-mergeSeasonColors(); // ajoute les nouvelles couleurs Hiver 2026/2027 si absentes
 initGrpBar();
 renderN();
 go("home",document.querySelector(".tab"));
 initSupSelect();
 showSyncStatus("idle");
 pullCatalogFromGitHub(true); // rafraîchit le catalogue en arrière-plan si configuré
-autoCloudPullSilent(); // rafraîchit commandes/couleurs/clients si le cloud est plus récent
-autoCheckUpdate(); // vérifie si une nouvelle version du code est en ligne, recharge si oui
+(async()=>{
+  // IMPORTANT : la vérification cloud doit passer avant tout save() local (mergeSeasonColors en fait un),
+  // sinon un appareil neuf se retrouve avec un horodatage local "juste maintenant" qui bloque la récupération.
+  await autoCloudPullSilent(); // rafraîchit commandes/couleurs/clients si le cloud est plus récent
+  mergeSeasonColors(); // ajoute les nouvelles couleurs Hiver 2026/2027 si absentes
+  autoCheckUpdate(); // vérifie si une nouvelle version du code est en ligne, recharge si oui
+})();
 // Persistent event delegation for quick-delete and edit on order cards
 document.addEventListener("click", function(e){
   const del = e.target.closest(".oc-del-btn");
