@@ -2,8 +2,17 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no"/>
 <title>C'MÉLODIE</title>
+<!-- iOS : ouverture en plein écran depuis l'écran d'accueil -->
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="C'MÉLODIE"/>
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%231A1A1A'/%3E%3Ctext x='50' y='62' font-size='42' text-anchor='middle' fill='white' font-family='sans-serif'%3EC%3C/text%3E%3C/svg%3E"/>
+<meta name="theme-color" content="#F6F3EF"/>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Expires" content="0"/>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 :root{
@@ -247,6 +256,7 @@ input,select,button{font-family:var(--font);}
   <div class="nav-top">
     <span class="brand">C'MÉLODIE</span>
     <div class="data-btns">
+      <button class="ibt" onclick="forceRefreshApp()" title="Vérifier les mises à jour">🔄</button>
       <span id="sync-status" class="sync-pill ss-idle">☁️</span>
       <button class="cbtn cb-up" onclick="cloudPush()" title="Sauvegarder sur le cloud">☁️↑</button>
       <button class="btn btn-info" onclick="exportJSON()" title="Exporter données">📤</button>
@@ -475,6 +485,35 @@ input,select,button{font-family:var(--font);}
 
 <script>
 /* ═══ VERROU D'ENTRÉE ═══ */
+/* Version du build — à changer à chaque nouvelle livraison pour déclencher la vérification auto */
+const APP_BUILD="20260905-1";
+
+/* Force le rechargement en contournant le cache tenace des apps iOS "plein écran" */
+function forceRefreshApp(){
+  showToast("🔄 Rechargement…");
+  setTimeout(()=>{
+    const base=location.href.split('?')[0].split('#')[0];
+    location.href=base+"?v="+Date.now();
+  },300);
+}
+
+/* Vérifie automatiquement, une fois par ouverture, si une version plus récente est en ligne */
+async function autoCheckUpdate(){
+  if(sessionStorage.getItem("cm-checked-update"))return;
+  sessionStorage.setItem("cm-checked-update","1");
+  try{
+    const base=location.href.split('?')[0].split('#')[0];
+    const res=await fetch(base+"?_chk="+Date.now(),{cache:"no-store"});
+    if(!res.ok)return;
+    const text=await res.text();
+    const m=text.match(/const APP_BUILD="([^"]+)"/);
+    if(m&&m[1]&&m[1]!==APP_BUILD){
+      showToast("🔄 Nouvelle version détectée, mise à jour…");
+      setTimeout(()=>{location.href=base+"?v="+Date.now();},600);
+    }
+  }catch(e){console.error("autoCheckUpdate:",e);}
+}
+
 function checkAppLock(){
   const v=document.getElementById("lock-pwd").value;
   if(v==="0000"){
@@ -1876,6 +1915,7 @@ initSupSelect();
 showSyncStatus("idle");
 pullCatalogFromGitHub(true); // rafraîchit le catalogue en arrière-plan si configuré
 autoCloudPullSilent(); // rafraîchit commandes/couleurs/clients si le cloud est plus récent
+autoCheckUpdate(); // vérifie si une nouvelle version du code est en ligne, recharge si oui
 // Persistent event delegation for quick-delete and edit on order cards
 document.addEventListener("click", function(e){
   const del = e.target.closest(".oc-del-btn");
