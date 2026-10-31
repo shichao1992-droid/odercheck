@@ -446,6 +446,12 @@ input,select,button{font-family:var(--font);}
     </div>
 
     <div class="card">
+      <div class="card-title">Sauvegardes locales des commandes 订单本地备份</div>
+      <div class="hint" style="margin-bottom:8px;">Créées automatiquement avant tout remplacement, import ou vidage des commandes (5 dernières). 每次覆盖/导入/清空订单前自动保存。</div>
+      <div id="snap-list" style="font-size:12px;color:var(--t2);"></div>
+    </div>
+
+    <div class="card">
       <div class="card-title">Synchronisation GitHub</div>
       <div class="row">
         <div class="fld"><label>Owner (compte GitHub)</label><input id="gh-owner" placeholder="shichao1992-droid"/></div>
@@ -518,7 +524,7 @@ input,select,button{font-family:var(--font);}
 <script>
 /* ═══ VERROU D'ENTRÉE ═══ */
 /* Version du build — à changer à chaque nouvelle livraison pour déclencher la vérification auto */
-const APP_BUILD="20260905-3";
+const APP_BUILD="20261031-1";
 
 /* Force le rechargement en contournant le cache tenace des apps iOS "plein écran" */
 function forceRefreshApp(){
@@ -752,12 +758,42 @@ function checkSyncPassword(){
 /* ── PUSH : envoyer vers le cloud (5 bins) ── */
 async function cloudPush(){
   if(jbSyncing) return;
+  if(ORDERS.length===0){
+    alert("⛔ Envoi bloqué : aucune commande sur cet appareil.\nPour éviter d'écraser le cloud avec des données vides, l'envoi est refusé.\n\n本机没有订单，已阻止推送，避免覆盖云端数据。");
+    showToast("⛔ Envoi bloqué (0 commande)");
+    return;
+  }
   if(!checkSyncPassword())return;
   jbSyncing = true;
   showSyncStatus("syncing");
   const ts = new Date().toISOString();
   let ok=0, fail=0;
+  let histForBackup=null;
   try{
+    /* Vérifier le cloud AVANT d'écraser */
+    let cloudOrd=null;
+    try{cloudOrd=await jbGet(JB_BINS.orders);}catch(e){cloudOrd=null;}
+    if(cloudOrd===null){
+      showSyncStatus("err","Cloud illisible");
+      showToast("⛔ Impossible de vérifier le cloud — envoi annulé");
+      return;
+    }
+    const nbCloud=(cloudOrd.ORDERS||[]).length;
+    if(nbCloud>ORDERS.length){
+      if(!confirm("⚠️ Le cloud contient "+nbCloud+" commandes, cet appareil en a "+ORDERS.length+".\nEnvoyer écrasera "+(nbCloud-ORDERS.length)+" commande(s) du cloud.\n\nContinuer ?\n\n云端订单("+nbCloud+")比本机("+ORDERS.length+")多，继续将覆盖。")){
+        showSyncStatus("idle");
+        return;
+      }
+    }
+    /* Historique : on garde l'état précédent du cloud dans le bin backup */
+    try{
+      const bk=await jbGet(JB_BINS.backup);
+      if(bk!==null){
+        let hist=(bk&&bk._hist)||[];
+        if(nbCloud>0)hist.unshift({d:cloudOrd._d||"",ORDERS:cloudOrd.ORDERS});
+        histForBackup=hist.slice(0,2);
+      }
+    }catch(e){histForBackup=null;}
     // Strip base64 images (too heavy for cloud)
     const cleanOrders = ORDERS.map(o=>{
       if(o.imageUrl && o.imageUrl.startsWith("data:")) return {...o, imageUrl:undefined};
@@ -786,7 +822,10 @@ async function cloudPush(){
       localStorage.setItem("cm-last-sync", ts);
       showToast("☁️↑ Sauvegardé ("+ORDERS.length+" cmd, "+COLORS.length+" couleurs)"+(b64count?" ⚠️ "+b64count+" photo(s) base64 ignorée(s)":""));
       // Backup silencieux (bin 5)
-      jbPut(JB_BINS.backup,{COLORS,ORDERS:cleanOrders,CLIENTS,MEM,PROD_IMAGES:cleanImages,_v:"v9",_d:ts}).catch(()=>{});
+      if(histForBackup!==null){
+        jbPut(JB_BINS.backup,{COLORS,ORDERS:cleanOrders,CLIENTS,MEM,PROD_IMAGES:cleanImages,_v:"v9",_d:ts,_hist:histForBackup})
+          .then(r=>{if(!r.ok)console.warn("backup bin:",r.status);}).catch(()=>{});
+      }
     } else {
       showSyncStatus("err","Erreur "+fail+"/4");
       showToast("⚠ "+ok+"/4 bins OK, "+fail+" échoué(s)");
@@ -820,7 +859,14 @@ async function cloudPull(){
       msg += "\n⚠️ ATTENTION : le cloud est PLUS ANCIEN !\n";
     }
     msg += "\nRemplacer les données locales ?";
+    if(nbOrd===0&&ORDERS.length>0){
+      msg = "⛔ ATTENTION : le cloud contient 0 commande alors que cet appareil en a "+ORDERS.length+" !\nCharger effacerait vos commandes locales.\n\n"+msg;
+    } else if(ORDERS.length>nbOrd){
+      msg = "⚠️ Le cloud a MOINS de commandes ("+nbOrd+") que cet appareil ("+ORDERS.length+").\n\n"+msg;
+    }
     if(!confirm(msg)) return;
+    if(nbOrd===0&&ORDERS.length>0&&!confirm("Dernière confirmation : effacer "+ORDERS.length+" commandes locales ?\n(Une sauvegarde locale sera créée.)")) return;
+    snapOrders("avant chargement cloud");
 
     if(dOrd?.ORDERS) ORDERS=dOrd.ORDERS;
     if(dCol?.COLORS){COLORS=dCol.COLORS;COLORS.forEach(c=>{if(!c.zh)c.zh="";if(!c.group)c.group="Autres";});}
@@ -855,6 +901,16 @@ async function autoCloudPullSilent(){
     const myDate=localTs();
     if(!cloudDate)return;
     if(myDate&&cloudDate<=myDate)return; // local à jour ou plus récent → ne rien écraser
+    const nbC=(dOrd?.ORDERS||[]).length, nbL=ORDERS.length;
+    if(nbL>0&&nbC===0){
+      console.warn("autoCloudPull: cloud sans commande ignoré");
+      showToast("⚠ Cloud sans commandes — données locales conservées");
+      return;
+    }
+    if(nbL>0&&nbC<nbL){
+      if(!confirm("☁️ Le cloud est plus récent mais contient moins de commandes ("+nbC+") que cet appareil ("+nbL+").\nCharger quand même ?\n\n云端较新但订单更少("+nbC+" < "+nbL+")，仍要加载吗？"))return;
+    }
+    snapOrders("avant chargement auto");
     const [dCli,dImg]=await Promise.all([jbGet(JB_BINS.clients),jbGet(JB_BINS.images)]);
     if(dOrd?.ORDERS)ORDERS=dOrd.ORDERS;
     if(dCol?.COLORS){COLORS=dCol.COLORS;COLORS.forEach(c=>{if(!c.zh)c.zh="";if(!c.group)c.group="Autres";});}
@@ -872,6 +928,7 @@ async function autoCloudPullSilent(){
 }
 
 function applyCloudData(d){
+  snapOrders("avant restauration backup");
   if(d.COLORS){COLORS=d.COLORS;COLORS.forEach(c=>{if(!c.zh)c.zh="";if(!c.group)c.group="Autres";});}
   if(d.ORDERS)ORDERS=d.ORDERS;
   if(d.CLIENTS)CLIENTS=d.CLIENTS;
@@ -1089,6 +1146,7 @@ async function importCatalogExcel(e){
 
 function renderCatalogTab(){
   fillGhCfgInputs();
+  renderSnaps();
   const nbRefs=Object.keys(CATALOG.refs||{}).length;
   const statsEl=document.getElementById("cat-stats");
   if(statsEl){
@@ -1172,7 +1230,44 @@ function load(){
   try{MEM=JSON.parse(localStorage.getItem(SK.M)||"{}");}catch(e){MEM={};}
   if(!activeClient&&CLIENTS.length)activeClient=CLIENTS[0].id;
 }
+/* ═══ SAUVEGARDES LOCALES DES COMMANDES (anti-perte) ═══ */
+const SNAP_KEY="cm-orders-snaps";
+function getSnaps(){try{return JSON.parse(localStorage.getItem(SNAP_KEY)||"[]")||[];}catch(e){return [];}}
+function snapOrdersRaw(raw,reason){
+  try{
+    const arr=JSON.parse(raw);
+    if(!Array.isArray(arr)||!arr.length)return;
+    let snaps=getSnaps();
+    if(snaps.length&&snaps[0].data===raw)return;
+    snaps.unshift({t:new Date().toISOString(),reason:reason||"",n:arr.length,data:raw});
+    snaps=snaps.slice(0,5);
+    try{localStorage.setItem(SNAP_KEY,JSON.stringify(snaps));}
+    catch(e){try{localStorage.setItem(SNAP_KEY,JSON.stringify(snaps.slice(0,2)));}catch(e2){}}
+  }catch(e){console.error("snapOrders:",e);}
+}
+function snapOrders(reason){snapOrdersRaw(JSON.stringify(ORDERS),reason);}
+function renderSnaps(){
+  const el=document.getElementById("snap-list");if(!el)return;
+  const snaps=getSnaps();
+  if(!snaps.length){el.innerHTML="Aucune sauvegarde pour l'instant. 暂无备份";return;}
+  el.innerHTML=snaps.map((s,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);"><span>${fmtDateTime(s.t)} — ${s.n} cmd <span style="color:var(--t3)">(${s.reason||"auto"})</span></span><button class="btn btn-ok" onclick="restoreSnap(${i})">↺ Restaurer 恢复</button></div>`).join("");
+}
+function restoreSnap(i){
+  const s=getSnaps()[i];if(!s)return;
+  if(!confirm("Restaurer "+s.n+" commandes ("+fmtDateTime(s.t)+") ?\nLes commandes actuelles ("+ORDERS.length+") seront remplacées.\n\n恢复这份备份？当前订单将被替换。"))return;
+  let restored;
+  try{restored=JSON.parse(s.data);}catch(e){showToast("⚠ Sauvegarde illisible");return;}
+  snapOrders("avant restauration");
+  ORDERS=restored;
+  save();refreshAll();renderSnaps();
+  showToast("✅ "+ORDERS.length+" commandes restaurées");
+}
+
 function save(){
+  try{
+    const prevO=localStorage.getItem(SK.O)||"[]";
+    if(ORDERS.length===0&&prevO.length>2)snapOrdersRaw(prevO,"avant vidage");
+  }catch(e){}
   localStorage.setItem(SK.C,JSON.stringify(COLORS));
   localStorage.setItem(SK.O,JSON.stringify(ORDERS));
   localStorage.setItem(SK.CL,JSON.stringify(CLIENTS));
@@ -1195,6 +1290,8 @@ function importJSON(e){
       if(!d.ORDERS&&!d.COLORS){showToast("⚠ Fichier invalide");return;}
       const nb=(d.ORDERS||[]).length,nc=(d.COLORS||[]).length;
       if(!confirm(`Importer ?\n${nb} commandes, ${nc} couleurs\nRemplace les données actuelles.`))return;
+      if(nb===0&&ORDERS.length>0&&!confirm("⚠️ Ce fichier contient 0 commande, vous en avez "+ORDERS.length+". Les effacer ?"))return;
+      snapOrders("avant import");
       if(d.COLORS){COLORS=d.COLORS;COLORS.forEach(c=>{if(!c.zh)c.zh="";if(!c.group)c.group="Autres";});}
       if(d.ORDERS)ORDERS=d.ORDERS;
       if(d.CLIENTS){CLIENTS=d.CLIENTS;if(!activeClient&&CLIENTS.length)activeClient=CLIENTS[0].id;}
@@ -1356,7 +1453,7 @@ function setHF(id){histFilter=id;histSupFilter="";renderHome();}
 function setHFS(s){histSupFilter=histSupFilter===s?"":s;renderHome();}
 function markRec(id){const o=ORDERS.find(x=>x.id===id);if(!o)return;o.received=true;o.receivedDate=new Date().toISOString().slice(0,10);save();renderHome();showToast("✅ Réception confirmée");}
 function unmarkRec(id){const o=ORDERS.find(x=>x.id===id);if(!o)return;delete o.received;delete o.receivedDate;save();renderHome();showToast("Annulé");}
-function delOrder(id){if(!confirm("Supprimer ?"))return;ORDERS=ORDERS.filter(o=>o.id!==id);save();renderHome();showToast("Supprimé");}
+function delOrder(id){if(!confirm("Supprimer ?"))return;snapOrders("avant suppression");ORDERS=ORDERS.filter(o=>o.id!==id);save();renderHome();showToast("Supprimé");}
 
 function editOrder(id){
   const o=ORDERS.find(x=>x.id===id);if(!o)return;
