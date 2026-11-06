@@ -524,7 +524,7 @@ input,select,button{font-family:var(--font);}
 <script>
 /* ═══ VERROU D'ENTRÉE ═══ */
 /* Version du build — à changer à chaque nouvelle livraison pour déclencher la vérification auto */
-const APP_BUILD="20261031-1";
+const APP_BUILD="20261031-2";
 
 /* Force le rechargement en contournant le cache tenace des apps iOS "plein écran" */
 function forceRefreshApp(){
@@ -779,7 +779,7 @@ async function cloudPush(){
       return;
     }
     const nbCloud=(cloudOrd.ORDERS||[]).length;
-    if(nbCloud>ORDERS.length){
+    if(abnormalGap(nbCloud,ORDERS.length)){
       if(!confirm("⚠️ Le cloud contient "+nbCloud+" commandes, cet appareil en a "+ORDERS.length+".\nEnvoyer écrasera "+(nbCloud-ORDERS.length)+" commande(s) du cloud.\n\nContinuer ?\n\n云端订单("+nbCloud+")比本机("+ORDERS.length+")多，继续将覆盖。")){
         showSyncStatus("idle");
         return;
@@ -861,7 +861,7 @@ async function cloudPull(){
     msg += "\nRemplacer les données locales ?";
     if(nbOrd===0&&ORDERS.length>0){
       msg = "⛔ ATTENTION : le cloud contient 0 commande alors que cet appareil en a "+ORDERS.length+" !\nCharger effacerait vos commandes locales.\n\n"+msg;
-    } else if(ORDERS.length>nbOrd){
+    } else if(abnormalGap(ORDERS.length,nbOrd)){
       msg = "⚠️ Le cloud a MOINS de commandes ("+nbOrd+") que cet appareil ("+ORDERS.length+").\n\n"+msg;
     }
     if(!confirm(msg)) return;
@@ -907,7 +907,7 @@ async function autoCloudPullSilent(){
       showToast("⚠ Cloud sans commandes — données locales conservées");
       return;
     }
-    if(nbL>0&&nbC<nbL){
+    if(nbL>0&&nbC<nbL&&abnormalGap(nbL,nbC)){
       if(!confirm("☁️ Le cloud est plus récent mais contient moins de commandes ("+nbC+") que cet appareil ("+nbL+").\nCharger quand même ?\n\n云端较新但订单更少("+nbC+" < "+nbL+")，仍要加载吗？"))return;
     }
     snapOrders("avant chargement auto");
@@ -1246,6 +1246,13 @@ function snapOrdersRaw(raw,reason){
   }catch(e){console.error("snapOrders:",e);}
 }
 function snapOrders(reason){snapOrdersRaw(JSON.stringify(ORDERS),reason);}
+/* Écart anormal entre deux nombres de commandes : ≥5 commandes OU ≥30 % du plus grand total.
+   (Supprimer volontairement 1-2 références ne déclenche donc plus d'alerte.) */
+function abnormalGap(big,small){
+  const gap=big-small;
+  if(gap<=0||big<=0)return false;
+  return gap>=5||gap/big>=0.3;
+}
 function renderSnaps(){
   const el=document.getElementById("snap-list");if(!el)return;
   const snaps=getSnaps();
